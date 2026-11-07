@@ -3,10 +3,18 @@ package at.agar.zielpopup
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.LinearGradient
+import android.graphics.Outline
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.widget.EditText
@@ -22,19 +30,8 @@ object Glass {
     val RED = 0xFFFF9C8F.toInt()
 
     /** Glasfläche: Füllung + Glanzverlauf + heller Rand */
-    fun surface(ctx: Context, radiusDp: Int, fill: Int = 0x24FFFFFF, stroke: Int = 0x59FFFFFF): Drawable {
-        val r = ctx.dp(radiusDp).toFloat()
-        val base = GradientDrawable().apply {
-            cornerRadius = r
-            setColor(fill)
-            setStroke(ctx.dp(1).coerceAtLeast(1), stroke)
-        }
-        val shine = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(0x2EFFFFFF, 0x08FFFFFF, 0x00FFFFFF)
-        ).apply { cornerRadius = r }
-        return LayerDrawable(arrayOf<Drawable>(base, shine))
-    }
+    fun surface(ctx: Context, radiusDp: Int, fill: Int = 0x1FFFFFFF, stroke: Int = 0xB3FFFFFF.toInt()): Drawable =
+        GlassDrawable(ctx.dp(radiusDp).toFloat(), fill, stroke, ctx.dp(1).toFloat().coerceAtLeast(1.5f))
 
     fun pressable(ctx: Context, radiusDp: Int, fill: Int, stroke: Int = 0x66FFFFFF): Drawable =
         RippleDrawable(ColorStateList.valueOf(0x40FFFFFF), surface(ctx, radiusDp, fill, stroke), null)
@@ -97,6 +94,62 @@ object Glass {
 
     @Suppress("unused")
     fun transparent() = Color.TRANSPARENT
+}
+
+/**
+ * Liquid-Glass-Fläche:
+ *  - durchscheinende Füllung
+ *  - Glanzlicht oben (wie Licht, das auf Glas fällt)
+ *  - leichtes Leuchten unten (Lichtbrechung)
+ *  - Rand mit Lichtverlauf: oben links hell, Mitte zart, unten rechts wieder heller
+ */
+class GlassDrawable(
+    private val radius: Float,
+    fill: Int,
+    private val rim: Int,
+    private val strokeW: Float
+) : Drawable() {
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill }
+    private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = strokeW }
+    private val rect = RectF()
+
+    override fun onBoundsChange(b: Rect) {
+        super.onBoundsChange(b)
+        val half = strokeW / 2
+        rect.set(b.left + half, b.top + half, b.right - half, b.bottom - half)
+        val top = b.top.toFloat()
+        val bottom = b.bottom.toFloat()
+        val h = b.height().toFloat()
+        sheenPaint.shader = LinearGradient(0f, top, 0f, top + h * 0.55f, 0x40FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+        glowPaint.shader = LinearGradient(0f, bottom - h * 0.35f, 0f, bottom, 0x00FFFFFF, 0x14FFFFFF, Shader.TileMode.CLAMP)
+        val rimSoft = (rim and 0x00FFFFFF) or 0x1A000000
+        val rimMid = (rim and 0x00FFFFFF) or 0x59000000
+        rimPaint.shader = LinearGradient(
+            b.left.toFloat(), top, b.right.toFloat(), bottom,
+            intArrayOf(rim, rimSoft, rimSoft, rimMid),
+            floatArrayOf(0f, 0.4f, 0.7f, 1f),
+            Shader.TileMode.CLAMP
+        )
+    }
+
+    override fun draw(c: Canvas) {
+        c.drawRoundRect(rect, radius, radius, fillPaint)
+        c.drawRoundRect(rect, radius, radius, sheenPaint)
+        c.drawRoundRect(rect, radius, radius, glowPaint)
+        c.drawRoundRect(rect, radius, radius, rimPaint)
+    }
+
+    override fun getOutline(outline: Outline) {
+        outline.setRoundRect(bounds, radius)
+        outline.alpha = 0.25f
+    }
+
+    override fun setAlpha(alpha: Int) {}
+    override fun setColorFilter(colorFilter: ColorFilter?) {}
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
 /** ScrollView mit Höchsthöhe – damit lange Listen im Popup scrollen statt den Bildschirm zu füllen */

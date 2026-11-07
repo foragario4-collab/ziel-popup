@@ -7,7 +7,7 @@
     <application
         android:allowBackup="true"
         android:label="Ziel-Popup"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        android:theme="@style/Theme.Glass">
 
         <activity
             android:name=".MainActivity"

@@ -71,7 +71,7 @@ class MystroReaderService : AccessibilityService() {
         busy = true
 
         OverlayPopup.show(this, AnalysisResult("🔎 Ziel: $dest", emptyList()))
-        val key = prefs.getString("google_key", null)
+        val key = if (prefs.getBoolean("google_on", true)) prefs.getString("google_key", null) else null
         Thread {
             val res = try {
                 Analyzer.analyze(dest, key)

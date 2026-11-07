@@ -32,7 +32,7 @@ object OverlayPopup {
             orientation = LinearLayout.VERTICAL
             setPadding(ctx.dp(18), ctx.dp(14), ctx.dp(14), ctx.dp(14))
             // dunkles Glas, damit es über jeder App gut lesbar bleibt
-            background = Glass.surface(ctx, 28, 0xD9161A2E.toInt(), 0x66FFFFFF)
+            background = Glass.surface(ctx, 30, 0xD9161A2E.toInt())
             elevation = ctx.dp(12).toFloat()
         }
 
@@ -89,12 +89,20 @@ object OverlayPopup {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or      // Rest des Bildschirms bleibt bedienbar
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or  // ...aber wir merken, wenn daneben getippt wird
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP
             y = ctx.dp(44)
             horizontalMargin = 0.03f
+        }
+        // Tippen irgendwo außerhalb des Popups -> schließen
+        box.setOnTouchListener { _, ev ->
+            if (ev.action == MotionEvent.ACTION_OUTSIDE) hide(ctx)
+            false
         }
         wm.addView(box, params)
         current = box

@@ -26,7 +26,11 @@ class MainActivity : Activity() {
     }
 
     private fun prefs() = getSharedPreferences("einstellungen", MODE_PRIVATE)
-    private fun googleKey(): String? = prefs().getString("google_key", null)?.takeIf { it.isNotBlank() }
+    private fun rawKey(): String? = prefs().getString("google_key", null)?.takeIf { it.isNotBlank() }
+    private fun googleOn(): Boolean = prefs().getBoolean("google_on", true)
+    /** Schlüssel nur, wenn Google nicht pausiert ist */
+    private fun googleKey(): String? = if (googleOn()) rawKey() else null
+    private fun googleToggleText() = if (googleOn()) "Google: AN  –  tippen zum Pausieren" else "Google: PAUSIERT  –  tippen zum Einschalten"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,12 +113,20 @@ class MainActivity : Activity() {
         settings.add(Glass.label(this,
             "Heute ${GoogleClient.usedToday()} / ${GoogleClient.DAILY_LIMIT} Abfragen · Monat ${GoogleClient.usedMonth()} · gleiche Orte 7 Tage gespeichert",
             12f), dp(4))
-        keyInput = Glass.input(this, "AIza…", single = true).apply { setText(googleKey() ?: "") }
+        keyInput = Glass.input(this, "AIza…", single = true).apply { setText(rawKey() ?: "") }
         settings.add(keyInput, dp(8))
         settings.add(Glass.button(this, "Schlüssel speichern") {
             prefs().edit().putString("google_key", keyInput.text.toString().trim()).apply()
-            output.text = if (googleKey() != null) "✅ Google-Schlüssel gespeichert" else "Google-Schlüssel entfernt"
+            output.text = if (rawKey() != null) "✅ Google-Schlüssel gespeichert" else "Google-Schlüssel entfernt"
         })
+        // Google pausieren, ohne den Schlüssel zu löschen
+        lateinit var toggle: android.widget.TextView
+        toggle = Glass.button(this, googleToggleText()) {
+            prefs().edit().putBoolean("google_on", !googleOn()).apply()
+            toggle.text = googleToggleText()
+            output.text = if (googleOn()) "▶️ Google ist wieder an" else "⏸ Google pausiert – nur OpenStreetMap, keine Abfragen"
+        }
+        settings.add(toggle)
         settings.add(Glass.button(this, "Verbindung testen") { runDiagnose() })
         root.add(settings, dp(16))
 
@@ -133,6 +145,17 @@ class MainActivity : Activity() {
             android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT
         ))
         setContentView(frame)
+
+        // Echter Glas-Effekt (ab Android 12): der Hintergrund des Handys scheint verschwommen durch
+        val blurOk = android.os.Build.VERSION.SDK_INT >= 31 &&
+                (getSystemService(android.view.WindowManager::class.java)?.isCrossWindowBlurEnabled == true)
+        if (blurOk) {
+            window.setBackgroundBlurRadius(dp(70))
+            frame.background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0x990B1026.toInt(), 0x802A1B5E.toInt(), 0x730E4A5C)
+            )
+        }
     }
 
     override fun onResume() {
@@ -155,7 +178,7 @@ class MainActivity : Activity() {
                 val list = ArrayList(OsmClient.diagnose())
                 val k = googleKey()
                 if (k == null) {
-                    list.add("➖ Google: kein Schlüssel eingetragen (nur OpenStreetMap)")
+                    list.add(if (rawKey() != null) "⏸ Google: pausiert" else "➖ Google: kein Schlüssel eingetragen (nur OpenStreetMap)")
                 } else {
                     list.add(
                         try {
