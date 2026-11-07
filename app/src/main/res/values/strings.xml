@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_description">Liest die Zieladresse aus Mystro und zeigt per Popup, was am Ziel ist (Lokal, Bar, Club …). Es werden nur Bildschirme der Mystro-App gelesen.</string>
+</resources>
