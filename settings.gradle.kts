@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "ZielPopup"
+rootProject.name = "ziel-popup"
 include(":app")
