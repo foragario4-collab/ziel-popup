@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         OsmClient.init(applicationContext)
+        GoogleClient.init(applicationContext)
 
         // Vollbild hinter Statusleiste, durchsichtige Leisten
         window.statusBarColor = android.graphics.Color.TRANSPARENT
@@ -112,6 +113,9 @@ class MainActivity : Activity() {
         // Karte 3: Einstellungen
         val settings = card()
         settings.add(Glass.label(this, "Google-Schlüssel (optional)", 13f), 0)
+        settings.add(Glass.label(this,
+            "Heute ${GoogleClient.usedToday()} / ${GoogleClient.DAILY_LIMIT} Abfragen · Monat ${GoogleClient.usedMonth()} · gleiche Orte 7 Tage gespeichert",
+            12f), dp(4))
         keyInput = Glass.input(this, "AIza…", single = true).apply { setText(googleKey() ?: "") }
         settings.add(keyInput, dp(8))
         settings.add(Glass.button(this, "Schlüssel speichern") {
@@ -158,12 +162,13 @@ class MainActivity : Activity() {
                 val list = ArrayList(OsmClient.diagnose())
                 val k = googleKey()
                 if (k == null) {
-                    list.add("➖ Google: kein Schlüssel eingetragen")
+                    list.add("➖ Google: kein Schlüssel eingetragen (nur OpenStreetMap)")
                 } else {
                     list.add(
                         try {
                             val n = GoogleClient.nearby(k, 48.2085, 16.3731, 60.0).size
-                            "✅ Google ($n Orte am Stephansplatz gefunden)"
+                            "✅ Google ($n Orte am Stephansplatz)\n     heute ${GoogleClient.usedToday()} / ${GoogleClient.DAILY_LIMIT} Abfragen, " +
+                                    "diesen Monat ${GoogleClient.usedMonth()} (gratis bis ca. 1.000)"
                         } catch (e: Exception) {
                             "❌ Google\n     ${e.message ?: ""}"
                         }

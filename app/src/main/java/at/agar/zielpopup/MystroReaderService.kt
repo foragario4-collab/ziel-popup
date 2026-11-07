@@ -23,6 +23,7 @@ class MystroReaderService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         OsmClient.init(applicationContext)
+        GoogleClient.init(applicationContext)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

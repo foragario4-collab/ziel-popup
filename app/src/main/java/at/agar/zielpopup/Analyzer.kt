@@ -244,6 +244,7 @@ object Analyzer {
 
     /** Öffnungszeiten aus der Karte, kurz gefasst und auf Deutsch */
     private fun hoursText(p: OsmPlace): String {
+        GoogleClient.todayText(p.tags)?.let { return " · $it" } // Google: heutige Zeiten
         val h = p.tags["opening_hours"]?.trim()?.takeIf { it.isNotEmpty() } ?: return ""
         var s = h
         listOf("Mo" to "Mo", "Tu" to "Di", "We" to "Mi", "Th" to "Do", "Fr" to "Fr", "Sa" to "Sa", "Su" to "So", "PH" to "Feiertag")
