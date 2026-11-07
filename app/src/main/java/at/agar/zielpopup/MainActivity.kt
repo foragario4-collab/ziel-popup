@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
-import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -17,7 +16,7 @@ class MainActivity : Activity() {
 
     private lateinit var input: EditText
     private lateinit var output: TextView
-    private lateinit var permButton: Button
+    private lateinit var permButton: View
     private lateinit var keyInput: EditText
     private lateinit var mystroStatus: TextView
 
@@ -32,90 +31,111 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         OsmClient.init(applicationContext)
-        val pad = dp(16)
+
+        // Vollbild hinter Statusleiste, durchsichtige Leisten
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+
+        val pad = dp(18)
+        val gap = dp(12)
+
+        // Hintergrund: Farbverlauf + weich verschwommene Farbkugeln (der "Liquid"-Effekt)
+        val frame = android.widget.FrameLayout(this).apply { background = Glass.backdrop() }
+        val blobs = listOf(
+            Triple(0x996D5BFF.toInt(), 320, Pair(-80, 40)),
+            Triple(0x8800C2FF.toInt(), 280, Pair(180, 360)),
+            Triple(0x77FF5FA2.toInt(), 260, Pair(-40, 640))
+        )
+        for ((color, size, pos) in blobs) {
+            val b = Glass.blob(this, color, size)
+            b.translationX = dp(pos.first).toFloat()
+            b.translationY = dp(pos.second).toFloat()
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                b.setRenderEffect(
+                    android.graphics.RenderEffect.createBlurEffect(160f, 160f, android.graphics.Shader.TileMode.DECAL)
+                )
+            } else {
+                b.alpha = 0.45f
+            }
+            frame.addView(b)
+        }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad * 2, pad, pad)
+            setPadding(pad, dp(56), pad, dp(40))
         }
-        root.addView(TextView(this).apply {
-            text = "Ziel-Popup – Version " + appVersion()
-            textSize = 22f
-        })
-        root.addView(TextView(this).apply {
-            text = "Zieladresse eintippen und prüfen. Das Popup erscheint oben am Bildschirm und schließt sich nach 20 Sekunden oder beim Antippen."
-            textSize = 14f
-            setPadding(0, dp(8), 0, dp(8))
-        })
-        input = EditText(this).apply {
-            hint = "z. B. Karl-Gunsam-Gasse 1, 1110 Wien"
-            setSingleLine(false)
+        fun card(): LinearLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+            background = Glass.surface(this@MainActivity, 28)
         }
-        root.addView(input)
-        root.addView(Button(this).apply {
-            text = "Ziel prüfen"
-            setOnClickListener { runCheck() }
-        })
-        root.addView(Button(this).apply {
-            text = "Verbindung testen"
-            setOnClickListener { runDiagnose() }
-        })
-        permButton = Button(this).apply {
-            text = "Popup-Berechtigung erteilen"
-            setOnClickListener {
-                startActivity(
-                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
-                )
-            }
+        fun LinearLayout.add(v: View, top: Int = gap) {
+            addView(v, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = top })
         }
-        root.addView(permButton)
 
-        // ---------- Mystro-Leser ----------
-        mystroStatus = TextView(this).apply {
-            textSize = 15f
-            setPadding(0, dp(16), 0, dp(4))
-        }
-        root.addView(mystroStatus)
-        root.addView(Button(this).apply {
-            text = "Mystro-Leser ein-/ausschalten"
-            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        })
-        root.addView(Button(this).apply {
-            text = "Was hat der Mystro-Leser gesehen?"
-            setOnClickListener {
-                val p = prefs()
-                output.text = "Erkannte Zieladresse: " + (p.getString("last_dest", null) ?: "noch nichts") +
-                        "\n\nGelesener Text:\n" + (p.getString("last_screen", null) ?: "noch nichts gelesen")
-            }
-        })
-        // ---------- Google-Schlüssel ----------
-        root.addView(TextView(this).apply {
-            text = "Google-Schlüssel (optional, für viel mehr Lokale):"
-            textSize = 14f
-            setPadding(0, dp(16), 0, 0)
-        })
-        keyInput = EditText(this).apply {
-            hint = "AIza…"
-            setSingleLine(true)
-            setText(googleKey() ?: "")
-        }
-        root.addView(keyInput)
-        root.addView(Button(this).apply {
-            text = "Schlüssel speichern"
-            setOnClickListener {
-                prefs().edit().putString("google_key", keyInput.text.toString().trim()).apply()
-                output.text = if (googleKey() != null) "✅ Google-Schlüssel gespeichert" else "Google-Schlüssel entfernt"
-            }
-        })
+        // Kopf
+        root.add(Glass.label(this, "Ziel-Popup", 32f, Glass.TEXT, bold = true), 0)
+        root.add(Glass.label(this, "Version " + appVersion() + " · was ist am Ziel?", 14f), dp(2))
 
-        output = TextView(this).apply {
-            textSize = 16f
-            setPadding(0, pad, 0, 0)
+        // Karte 1: Suche
+        val search = card()
+        search.add(Glass.label(this, "Zieladresse", 13f), 0)
+        input = Glass.input(this, "z. B. Karl-Gunsam-Gasse 1", single = false)
+        search.add(input, dp(8))
+        search.add(Glass.button(this, "Ziel prüfen", primary = true) { runCheck() })
+        root.add(search, dp(24))
+
+        // Karte 2: Mystro
+        val mystro = card()
+        mystroStatus = Glass.label(this, "", 16f, Glass.TEXT)
+        mystro.add(mystroStatus, 0)
+        mystro.add(Glass.button(this, "Mystro-Leser ein/aus") {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        })
+        mystro.add(Glass.button(this, "Was hat der Leser gesehen?") {
+            val p = prefs()
+            output.text = "Erkannte Zieladresse: " + (p.getString("last_dest", null) ?: "noch nichts") +
+                    "\n\nGelesener Text:\n" + (p.getString("last_screen", null) ?: "noch nichts gelesen")
+        })
+        permButton = Glass.button(this, "Popup-Berechtigung erteilen", primary = true) {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        }
+        mystro.add(permButton)
+        root.add(mystro, dp(16))
+
+        // Karte 3: Einstellungen
+        val settings = card()
+        settings.add(Glass.label(this, "Google-Schlüssel (optional)", 13f), 0)
+        keyInput = Glass.input(this, "AIza…", single = true).apply { setText(googleKey() ?: "") }
+        settings.add(keyInput, dp(8))
+        settings.add(Glass.button(this, "Schlüssel speichern") {
+            prefs().edit().putString("google_key", keyInput.text.toString().trim()).apply()
+            output.text = if (googleKey() != null) "✅ Google-Schlüssel gespeichert" else "Google-Schlüssel entfernt"
+        })
+        settings.add(Glass.button(this, "Verbindung testen") { runDiagnose() })
+        root.add(settings, dp(16))
+
+        // Ausgabe
+        output = Glass.label(this, "", 15f, Glass.TEXT).apply {
             setTextIsSelectable(true)
+            setPadding(dp(4), 0, dp(4), 0)
         }
-        root.addView(output)
+        root.add(output, dp(20))
 
-        setContentView(ScrollView(this).apply { addView(root) })
+        val scroll = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            addView(root)
+        }
+        frame.addView(scroll, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        setContentView(frame)
     }
 
     override fun onResume() {

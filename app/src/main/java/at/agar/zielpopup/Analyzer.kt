@@ -12,7 +12,7 @@ private data class Candidate(val place: OsmPlace, val cat: Category, val state: 
 object Analyzer {
     const val RADIUS_M = 25   // Umkreis um die Hausnummer (Adressen sind nie ganz genau, daher etwas mehr als 20 m)
     const val STREET_M = 20   // Streifen links/rechts der Gasse, wenn keine Hausnummer da ist
-    const val MAX_LINES = 5
+    const val MAX_LINES = 60   // praktisch alles anzeigen, das Popup scrollt
     private var key: String? = null
 
     private val FILTERS = listOf(

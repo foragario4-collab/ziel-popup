@@ -1,24 +1,27 @@
 package at.agar.zielpopup
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
 
-/** Das schwebende Fenster, das über Uber/Bolt angezeigt wird */
+/** Das schwebende Glas-Fenster über Uber/Bolt – zeigt ALLE Treffer, scrollbar */
 object OverlayPopup {
-    private const val SHOW_MS = 20000L
+    private const val SHOW_MS = 25000L
     private var current: View? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val autoHide = Runnable { current?.let { v -> hideView(v.context) } }
 
+    @SuppressLint("ClickableViewAccessibility")
     fun show(context: Context, result: AnalysisResult) {
         val ctx = context.applicationContext
         if (!Settings.canDrawOverlays(ctx)) return
@@ -27,35 +30,60 @@ object OverlayPopup {
 
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(ctx.dp(16), ctx.dp(12), ctx.dp(16), ctx.dp(12))
-            background = GradientDrawable().apply {
-                setColor(0xEE1B1B26.toInt())
-                cornerRadius = ctx.dp(16).toFloat()
-            }
-            setOnClickListener { hide(ctx) }
+            setPadding(ctx.dp(18), ctx.dp(14), ctx.dp(14), ctx.dp(14))
+            // dunkles Glas, damit es über jeder App gut lesbar bleibt
+            background = Glass.surface(ctx, 28, 0xD9161A2E.toInt(), 0x66FFFFFF)
+            elevation = ctx.dp(12).toFloat()
         }
-        box.addView(TextView(ctx).apply {
+
+        // Kopfzeile: Titel + Schließen
+        val header = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(TextView(ctx).apply {
             text = result.title
             textSize = 19f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(0xFFFFFFFF.toInt())
-        })
+            setTextColor(Glass.TEXT)
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(TextView(ctx).apply {
+            text = "✕"
+            textSize = 18f
+            setTextColor(Glass.TEXT)
+            gravity = Gravity.CENTER
+            background = Glass.pressable(ctx, 18, 0x26FFFFFF)
+            setOnClickListener { hide(ctx) }
+        }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)))
+        box.addView(header)
+
+        // Alle Zeilen, scrollbar (max. ca. 55 % der Bildschirmhöhe)
+        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         for (line in result.lines) {
-            box.addView(TextView(ctx).apply {
+            list.addView(TextView(ctx).apply {
                 text = line.text
                 textSize = 16f
-                setPadding(0, ctx.dp(4), 0, 0)
+                setPadding(0, ctx.dp(6), 0, 0)
+                setTextColor(Glass.stateColor(line.state))
                 if (line.bold) setTypeface(typeface, Typeface.BOLD)
-                setTextColor(
-                    when (line.state) {
-                        OpenState.OPEN -> 0xFF8DF5A6.toInt()
-                        OpenState.UNKNOWN -> 0xFFB8B8C4.toInt()
-                        OpenState.CLOSED -> 0xFFFF9C8F.toInt()
-                        null -> 0xFFFFFFFF.toInt()
-                    }
-                )
             })
         }
+        val maxH = (ctx.resources.displayMetrics.heightPixels * 0.55).toInt()
+        val scroll = MaxHeightScrollView(ctx, maxH).apply {
+            isVerticalScrollBarEnabled = true
+            addView(list)
+            // beim Scrollen nicht automatisch schließen
+            setOnTouchListener { _, ev ->
+                if (ev.action == MotionEvent.ACTION_DOWN) {
+                    handler.removeCallbacks(autoHide)
+                    handler.postDelayed(autoHide, SHOW_MS)
+                }
+                false
+            }
+        }
+        box.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = ctx.dp(4) })
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -65,17 +93,18 @@ object OverlayPopup {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP
-            x = 0
-            y = ctx.dp(48)
+            y = ctx.dp(44)
             horizontalMargin = 0.03f
         }
         wm.addView(box, params)
         current = box
-        handler.postDelayed({ hide(ctx) }, SHOW_MS)
+        handler.postDelayed(autoHide, SHOW_MS)
     }
 
-    fun hide(context: Context) {
-        handler.removeCallbacksAndMessages(null)
+    fun hide(context: Context) = hideView(context)
+
+    private fun hideView(context: Context) {
+        handler.removeCallbacks(autoHide)
         val v = current ?: return
         current = null
         try {
