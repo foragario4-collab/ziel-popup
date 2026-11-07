@@ -126,11 +126,11 @@ object Analyzer {
         val nearby = places
             .filter { it.id !in exactIds }
             .mapNotNull { p -> toCandidate(p, now, distanceM(lat, lon, p.lat, p.lon)) }
-            .sortedWith(compareBy({ it.cat.prio }, { it.dist ?: 0 }))
+            .sortedWith(compareBy({ stateRank(it.state) }, { it.cat.prio }, { it.dist ?: 0 }))
 
         addCandidates(lines, nearby)
         if (exact.isEmpty() && nearby.isEmpty()) {
-            lines.add(PopupLine("Nichts Offenes im Umkreis von $RADIUS_M m", null))
+            lines.add(PopupLine("Nichts im Umkreis von $RADIUS_M m", null))
         }
         note?.let { lines.add(PopupLine(it, null)) }
         return AnalysisResult(title, lines)
@@ -196,11 +196,11 @@ object Analyzer {
         }
         val list = raw
             .mapNotNull { toCandidate(it, now, null) }
-            .sortedWith(compareBy({ it.cat.prio }, { it.place.tags["name"] ?: "" }))
+            .sortedWith(compareBy({ stateRank(it.state) }, { it.cat.prio }, { it.place.tags["name"] ?: "" }))
 
         val lines = ArrayList<PopupLine>()
         addCandidates(lines, list)
-        if (list.isEmpty()) lines.add(PopupLine("Wohngegend – nichts Offenes in der Gasse gefunden", null))
+        if (list.isEmpty()) lines.add(PopupLine("Wohngegend – keine Lokale in der Gasse gefunden", null))
         note?.let { lines.add(PopupLine(it, null)) }
         return AnalysisResult(title, lines)
     }
@@ -223,21 +223,23 @@ object Analyzer {
         for (c in list.take(MAX_LINES)) {
             val name = c.place.tags["name"] ?: c.cat.label
             val dist = c.dist?.let { "$it m, " } ?: ""
-            lines.add(PopupLine("${c.cat.emoji} ${c.cat.visit} möglich: $name ($dist${stateText(c.state)}${hoursText(c.place)})", c.state))
+            val head = if (c.state == OpenState.CLOSED) "${c.cat.emoji} ${c.cat.label}: $name" // zu -> nur Info
+                       else "${c.cat.emoji} ${c.cat.visit} möglich: $name"
+            lines.add(PopupLine("$head ($dist${stateText(c.state)}${hoursText(c.place)})", c.state))
         }
         if (list.size > MAX_LINES) lines.add(PopupLine("+ ${list.size - MAX_LINES} weitere", null))
     }
 
+    private fun stateRank(s: OpenState) = when (s) {
+        OpenState.OPEN -> 0
+        OpenState.UNKNOWN -> 1
+        OpenState.CLOSED -> 2
+    }
+
     private fun toCandidate(p: OsmPlace, now: Calendar, dist: Int?): Candidate? {
         val cat = classify(p.tags) ?: return null
-        val st = stateOf(p, now)
-        if (st == OpenState.CLOSED) return null
-        // Gebetshäuser ohne bekannte Zeiten nur tagsüber anzeigen
-        if (st == OpenState.UNKNOWN && p.tags["amenity"] == "place_of_worship") {
-            val h = now.get(Calendar.HOUR_OF_DAY)
-            if (h < 7 || h >= 20) return null
-        }
-        return Candidate(p, cat, st, dist)
+        // Geschlossene Orte werden NICHT mehr versteckt: sie stehen unten, rot, mit Öffnungszeiten
+        return Candidate(p, cat, stateOf(p, now), dist)
     }
 
     /** Öffnungszeiten aus der Karte, kurz gefasst und auf Deutsch */
@@ -278,7 +280,15 @@ object Analyzer {
             a == "events_venue" -> Category("🎤", "Veranstaltungsort", "Eventbesuch", 2)
             a == "bar" || a == "pub" || a == "biergarten" -> Category("🍸", "Bar", "Barbesuch", 2)
             a == "casino" || l == "adult_gaming_centre" -> Category("🎰", "Casino / Spielhalle", "Casinobesuch", 2)
-            a == "place_of_worship" -> when (t["religion"]) {
+            a == "place_of_worship" -> when (
+                t["religion"] ?: (t["name"] ?: "").lowercase().let { n ->
+                    when {
+                        n.contains("synagog") || n.contains("tempel") || n.contains("or chadasch") -> "jewish"
+                        n.contains("moschee") || n.contains("mosque") -> "muslim"
+                        else -> null
+                    }
+                }
+            ) {
                 "jewish" -> Category("✡️", "Synagoge", "Synagogenbesuch", 3)
                 "muslim" -> Category("🕌", "Moschee", "Moscheebesuch", 3)
                 else -> Category("⛪", "Kirche", "Kirchenbesuch", 3)
