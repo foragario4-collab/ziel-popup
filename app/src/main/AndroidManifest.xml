@@ -6,7 +6,9 @@
 
     <application
         android:allowBackup="true"
-        android:label="Ziel-Popup"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="Ziel"
         android:theme="@style/Theme.Glass">
 
         <activity

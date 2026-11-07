@@ -131,7 +131,8 @@ object GoogleClient {
         val out = ArrayList<OsmPlace>()
         for (i in 0 until arr.length()) {
             val p = arr.optJSONObject(i) ?: continue
-            if (p.optString("businessStatus") == "CLOSED_PERMANENTLY") continue
+            val status = p.optString("businessStatus")
+            if (status == "CLOSED_PERMANENTLY") continue
             val loc = p.optJSONObject("location") ?: continue
             val types = ArrayList<String>()
             p.optJSONArray("types")?.let { t -> for (k in 0 until t.length()) types.add(t.optString(k)) }
@@ -142,6 +143,7 @@ object GoogleClient {
             name?.let { tags["name"] = it }
             mapTypes(types, name ?: "", tags)
             tags["_gtypes"] = types.joinToString(",")
+            if (status == "CLOSED_TEMPORARILY") tags["_temp_closed"] = "1"
             p.optJSONObject("primaryTypeDisplayName")?.optString("text")?.takeIf { it.isNotEmpty() }
                 ?.let { tags["_gtype_name"] = it } // deutsche Bezeichnung, z. B. "Blumengeschäft"
 

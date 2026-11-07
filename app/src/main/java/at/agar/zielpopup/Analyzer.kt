@@ -28,7 +28,8 @@ object Analyzer {
     private const val CACHE_MS = 20 * 60 * 1000L
 
     fun analyze(input: String, googleKey: String? = null): AnalysisResult {
-        val cacheKey = input.lowercase().replace(Regex("[^a-z0-9äöüß]"), "")
+        val cacheKey = input.lowercase().replace(Regex("[^a-z0-9äöüß]"), "") +
+                (if (googleKey.isNullOrBlank()) "|osm" else "|g")
         cache[cacheKey]?.let { (time, res) ->
             if (System.currentTimeMillis() - time < CACHE_MS) return res
         }
@@ -119,7 +120,7 @@ object Analyzer {
             for (p in exact) {
                 if (p !== first) lines.add(PopupLine(Kinds.describe(p.tags), null, bold = true))
                 val st = stateOf(p, now)
-                lines.add(PopupLine("${stateText(st)}${hoursText(p)}", st, bold = true))
+                lines.add(PopupLine("${statusText(p, st)}${hoursText(p)}", st, bold = true))
             }
         } else {
             title = "🏠 Wohnadresse"
@@ -217,10 +218,24 @@ object Analyzer {
             } catch (e: Exception) { null })
 
     /** Google liefert "jetzt offen" direkt, OpenStreetMap nur Öffnungszeiten-Text */
-    private fun stateOf(p: OsmPlace, now: Calendar): OpenState = when (p.tags["_open"]) {
-        "1" -> OpenState.OPEN
-        "0" -> OpenState.CLOSED
-        else -> OpeningHours.state(p.tags["opening_hours"], now)
+    private fun stateOf(p: OsmPlace, now: Calendar): OpenState {
+        if (p.tags["_temp_closed"] == "1") return OpenState.CLOSED
+        when (p.tags["_open"]) {
+            "1" -> return OpenState.OPEN
+            "0" -> return OpenState.CLOSED
+        }
+        // Google gibt bei 24-Stunden-Betrieben manchmal nur den Text "24 Stunden geöffnet"
+        if (p.tags["_week"]?.contains("24 Stunden", ignoreCase = true) == true) return OpenState.OPEN
+        val st = OpeningHours.state(p.tags["opening_hours"], now)
+        // Hotels und Spitäler haben oft keine Zeiten eingetragen, sind aber rund um die Uhr besetzt
+        if (st == OpenState.UNKNOWN && alwaysOpen(p.tags)) return OpenState.OPEN
+        return st
+    }
+
+    private fun alwaysOpen(t: Map<String, String>): Boolean {
+        val g = t["_gtypes"] ?: ""
+        return t["tourism"] in setOf("hotel", "hostel", "guest_house") || t["amenity"] == "hospital" ||
+                g.contains("lodging") || g.contains("hotel") || g.contains("hospital")
     }
 
     private fun addCandidates(lines: MutableList<PopupLine>, list: List<Candidate>) {
@@ -229,7 +244,7 @@ object Analyzer {
             val dist = c.dist?.let { "$it m, " } ?: ""
             val head = if (c.state == OpenState.CLOSED) "${c.cat.emoji} ${c.cat.label}: $name" // zu -> nur Info
                        else "${c.cat.emoji} ${c.cat.visit} möglich: $name"
-            lines.add(PopupLine("$head ($dist${stateText(c.state)}${hoursText(c.place)})", c.state))
+            lines.add(PopupLine("$head ($dist${statusText(c.place, c.state)}${hoursText(c.place)})", c.state))
         }
         if (list.size > MAX_LINES) lines.add(PopupLine("+ ${list.size - MAX_LINES} weitere", null))
     }
@@ -247,9 +262,24 @@ object Analyzer {
     }
 
     /** Öffnungszeiten aus der Karte, kurz gefasst und auf Deutsch */
+    /** Status mit passendem Hinweis statt immer nur "Zeiten unbekannt" */
+    private fun statusText(p: OsmPlace, s: OpenState): String {
+        if (p.tags["_temp_closed"] == "1") return "vorübergehend geschlossen"
+        if (s != OpenState.UNKNOWN) return stateText(s)
+        val t = p.tags
+        return when {
+            t["amenity"] == "place_of_worship" -> "Gottesdienstzeiten unbekannt"
+            t["amenity"] == "events_venue" -> "Zeiten je nach Veranstaltung"
+            t["amenity"] == "nightclub" || t["amenity"] == "stripclub" -> "Zeiten je nach Event"
+            else -> stateText(s)
+        }
+    }
+
     private fun hoursText(p: OsmPlace): String {
+        if (p.tags["_temp_closed"] == "1") return ""
         GoogleClient.todayText(p.tags)?.let { return " · $it" } // Google: heutige Zeiten
-        val h = p.tags["opening_hours"]?.trim()?.takeIf { it.isNotEmpty() } ?: return ""
+        val h = p.tags["opening_hours"]?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return if (alwaysOpen(p.tags)) " · rund um die Uhr" else ""
         var s = h
         listOf("Mo" to "Mo", "Tu" to "Di", "We" to "Mi", "Th" to "Do", "Fr" to "Fr", "Sa" to "Sa", "Su" to "So", "PH" to "Feiertag")
             .forEach { (en, de) -> s = s.replace(Regex("\\b$en\\b"), de) }
@@ -258,8 +288,8 @@ object Analyzer {
     }
 
     private fun stateText(s: OpenState) = when (s) {
-        OpenState.OPEN -> "jetzt offen"
-        OpenState.CLOSED -> "geschlossen"
+        OpenState.OPEN -> "jetzt geöffnet"
+        OpenState.CLOSED -> "jetzt geschlossen"
         OpenState.UNKNOWN -> "Zeiten unbekannt"
     }
 
