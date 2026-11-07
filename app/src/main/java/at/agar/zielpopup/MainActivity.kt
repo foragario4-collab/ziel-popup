@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.graphics.drawable.InsetDrawable
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
@@ -17,16 +18,15 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
-import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.SeekBar
-import android.widget.Switch
 import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -47,7 +47,7 @@ class MainActivity : Activity() {
     private lateinit var historyBox: LinearLayout
     private lateinit var settingsBox: LinearLayout
 
-    private val iosGreen = 0xFF34C759.toInt()
+    private val accent = Glass.ACCENT
 
     // ---------------------------------------------------------------- Aufbau
 
@@ -72,7 +72,7 @@ class MainActivity : Activity() {
         }
 
         // Kopf
-        root.addView(Glass.label(this, "Ziel", 38f, Glass.TEXT, bold = true))
+        root.addView(Glass.label(this, "Ziel", 36f, Glass.TEXT, bold = true).apply { letterSpacing = -0.02f })
         root.addView(Glass.label(this, "Was ist am Fahrtziel?", 16f), lp(dp(2)))
         // Status: feste Box, eine Zeile pro Status – nichts zum Seitwärts-Wischen
         statusBox = card(4)
@@ -130,6 +130,19 @@ class MainActivity : Activity() {
         ))
         setContentView(frame)
         enableRealBlur(frame)
+        animateIn(root)
+    }
+
+    /** Beim Öffnen: Abschnitte gleiten nacheinander weich von unten herein */
+    private fun animateIn(root: LinearLayout) {
+        for (i in 0 until root.childCount) {
+            val v = root.getChildAt(i)
+            v.alpha = 0f
+            v.translationY = dp(22).toFloat()
+            v.animate().alpha(1f).translationY(0f)
+                .setStartDelay(40L * i).setDuration(520)
+                .setInterpolator(DecelerateInterpolator(2f)).start()
+        }
     }
 
     override fun onResume() {
@@ -181,7 +194,7 @@ class MainActivity : Activity() {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         addView(ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleSmall).apply {
-            indeterminateTintList = ColorStateList.valueOf(Color.WHITE)
+            indeterminateTintList = ColorStateList.valueOf(accent)
         })
         addView(Glass.label(this@MainActivity, "Suche läuft …", 15f), LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
@@ -219,6 +232,7 @@ class MainActivity : Activity() {
             r.isClickable = true
             r.background = RippleDrawable(ColorStateList.valueOf(0x22FFFFFF), null, ColorDrawable(Color.WHITE))
             r.setOnClickListener { haptic(it); onClick() }
+            Glass.pressEffect(r, 0.98f)
         }
         statusBox.addView(r)
     }
@@ -230,6 +244,10 @@ class MainActivity : Activity() {
         resultBox.removeAllViews()
         resultBox.addView(ResultView.header(this, result), lp(0))
         resultBox.addView(ResultView.body(this, result), lp(dp(2)))
+        resultBox.alpha = 0f
+        resultBox.translationY = dp(12).toFloat()
+        resultBox.animate().alpha(1f).translationY(0f).setDuration(420)
+            .setInterpolator(DecelerateInterpolator(2f)).start()
     }
 
     /** Nach einer Änderung in "Anzeige im Popup" das letzte Ergebnis neu zeichnen */
@@ -243,14 +261,13 @@ class MainActivity : Activity() {
         displayBox.removeAllViews()
 
         // Sortieren
-        displayBox.addView(Glass.label(this, "Sortieren nach", 13f).apply { setPadding(0, dp(12), 0, dp(2)) })
+        displayBox.addView(Glass.label(this, "Sortieren nach", 13f).apply { setPadding(0, dp(12), 0, dp(8)) })
         val openFirst = Prefs.openFirst(this)
-        displayBox.addView(choiceRow("Nähe", !openFirst) {
-            Prefs.setOpenFirst(this, false); buildDisplaySettings(); redrawResult()
-        })
-        displayBox.addView(separator())
-        displayBox.addView(choiceRow("Geöffnet zuerst, dann Nähe", openFirst) {
-            Prefs.setOpenFirst(this, true); buildDisplaySettings(); redrawResult()
+        displayBox.addView(GlassSegmented(this, listOf("Nähe", "Geöffnet zuerst"), if (openFirst) 1 else 0) { i ->
+            Prefs.setOpenFirst(this, i == 1); redrawResult()
+        }, lp(0))
+        displayBox.addView(Glass.label(this, "„Geöffnet zuerst“ = offene Orte oben, danach nach Nähe", 12.5f).apply {
+            setPadding(dp(2), dp(8), 0, dp(12))
         })
         displayBox.addView(separator())
 
@@ -278,13 +295,20 @@ class MainActivity : Activity() {
         displayBox.addView(SeekBar(this).apply {
             max = (Prefs.RADIUS_MAX - Prefs.RADIUS_MIN) / step
             progress = (Prefs.radius(this@MainActivity) - Prefs.RADIUS_MIN) / step
-            progressTintList = ColorStateList.valueOf(iosGreen)
-            thumbTintList = ColorStateList.valueOf(Color.WHITE)
+            progressTintList = ColorStateList.valueOf(accent)
             progressBackgroundTintList = ColorStateList.valueOf(0x55FFFFFF)
+            thumb = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.WHITE)
+                setStroke(dp(1).coerceAtLeast(1), 0x33000000)
+                setSize(dp(26), dp(26))
+            }
+            splitTrack = false
             setPadding(dp(4), dp(12), dp(4), dp(12))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
                     radiusLabel.text = "${Prefs.RADIUS_MIN + p * step} m"
+                    if (fromUser) sb?.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
                 override fun onStartTrackingTouch(sb: SeekBar?) {}
                 override fun onStopTrackingTouch(sb: SeekBar?) {
@@ -300,37 +324,23 @@ class MainActivity : Activity() {
         val off = Prefs.catsOff(this)
         Cats.ALL.chunked(2).forEach { pair ->
             val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (c in pair) {
-                line.addView(CheckBox(this).apply {
-                    text = "${c.emoji} ${c.label}"
-                    textSize = 14.5f
-                    setTextColor(Glass.TEXT)
-                    buttonTintList = ColorStateList.valueOf(Color.WHITE)
-                    isChecked = c.key !in off
-                    setPadding(dp(4), dp(8), 0, dp(8))
-                    setOnCheckedChangeListener { v, on ->
-                        haptic(v)
-                        Prefs.setCatOn(this@MainActivity, c.key, on)
-                        redrawResult()
-                    }
-                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            pair.forEachIndexed { idx, c ->
+                line.addView(GlassChip(this, "${c.emoji} ${c.label}", c.key !in off) { on ->
+                    Prefs.setCatOn(this@MainActivity, c.key, on)
+                    redrawResult()
+                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (idx == 1) leftMargin = dp(8)
+                })
             }
-            if (pair.size == 1) line.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-            displayBox.addView(line)
+            if (pair.size == 1) line.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f).apply { leftMargin = dp(8) })
+            displayBox.addView(line, lp(dp(8)))
         }
         displayBox.addView(View(this), LinearLayout.LayoutParams(1, dp(8)))
     }
 
-    /** Auswahlzeile mit Häkchen rechts */
-    private fun choiceRow(title: String, selected: Boolean, onClick: () -> Unit) =
-        row(title, null, Glass.label(this, if (selected) "✓" else "", 18f, iosGreen), onClick = onClick)
-
-    private fun switch(checked: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {
-        isChecked = checked
-        val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
-        thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, 0xFFE6E6EA.toInt()))
-        trackTintList = ColorStateList(states, intArrayOf(iosGreen, 0x55FFFFFF))
-        setOnCheckedChangeListener { v, on -> haptic(v); onChange(on) }
+    private fun switch(checked: Boolean, onChange: (Boolean) -> Unit) = GlassSwitch(this).apply {
+        setOn(checked)
+        this.onChange = { on -> haptic(this); onChange(on) }
     }
 
     // ---------------------------------------------------------------- Verlauf
@@ -384,14 +394,11 @@ class MainActivity : Activity() {
         settingsBox.addView(separator())
 
         val hasKey = Prefs.rawKey(this) != null
-        val sw = Switch(this).apply {
-            isChecked = hasKey && Prefs.googleOn(this@MainActivity)
+        val sw = GlassSwitch(this).apply {
+            setOn(hasKey && Prefs.googleOn(this@MainActivity))
             isEnabled = hasKey
-            val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
-            thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, 0xFFE6E6EA.toInt()))
-            trackTintList = ColorStateList(states, intArrayOf(iosGreen, 0x55FFFFFF))
-            setOnCheckedChangeListener { v, on ->
-                haptic(v)
+            onChange = { on ->
+                haptic(this)
                 Prefs.setGoogleOn(this@MainActivity, on)
                 refreshStatus()
             }
@@ -423,6 +430,17 @@ class MainActivity : Activity() {
 
     private fun dialog() = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
 
+    /** Dialog im Glas-Look: dunkle Glasfläche, Knöpfe in der Akzentfarbe */
+    private fun AlertDialog.glassy(): AlertDialog {
+        window?.setBackgroundDrawable(InsetDrawable(
+            Glass.surface(this@MainActivity, 28, 0xF2141626.toInt(), 0x80FFFFFF.toInt()), dp(16)
+        ))
+        for (b in intArrayOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)) {
+            getButton(b)?.setTextColor(accent)
+        }
+        return this
+    }
+
     private fun keyDialog() {
         val field = EditText(this).apply {
             setText(Prefs.rawKey(this@MainActivity) ?: "")
@@ -447,7 +465,7 @@ class MainActivity : Activity() {
                 refreshStatus(); refreshSettings()
             }
             .setNegativeButton("Abbrechen", null)
-            .show()
+            .show().glassy()
     }
 
     private fun diagnoseDialog() {
@@ -455,7 +473,7 @@ class MainActivity : Activity() {
             .setTitle("Verbindung testen")
             .setMessage("Teste alle Datenquellen …")
             .setPositiveButton("OK", null)
-            .show()
+            .show().glassy()
         val key = Prefs.activeKey(this)
         val hasRaw = Prefs.rawKey(this) != null
         worker.execute {
@@ -488,7 +506,7 @@ class MainActivity : Activity() {
         val p = Prefs.get(this)
         val msg = "Erkannte Zieladresse:\n" + (p.getString("last_dest", null) ?: "noch nichts") +
                 "\n\nGelesener Text:\n" + (p.getString("last_screen", null) ?: "noch nichts gelesen")
-        dialog().setTitle("Mystro-Leser").setMessage(msg).setPositiveButton("OK", null).show()
+        dialog().setTitle("Mystro-Leser").setMessage(msg).setPositiveButton("OK", null).show().glassy()
     }
 
     // ---------------------------------------------------------------- Bausteine
@@ -545,6 +563,7 @@ class MainActivity : Activity() {
                 ColorStateList.valueOf(0x22FFFFFF), null, ColorDrawable(Color.WHITE)
             )
             r.setOnClickListener { haptic(it); onClick() }
+            Glass.pressEffect(r, 0.98f)
         }
         return r
     }
@@ -564,9 +583,9 @@ class MainActivity : Activity() {
     private fun buildBackdrop(frame: FrameLayout) {
         frame.background = Glass.backdrop()
         val blobs = listOf(
-            Triple(0xCC6D5BFF.toInt(), 460, Pair(-140, -40)),
-            Triple(0xAA00C2FF.toInt(), 420, Pair(120, 320)),
-            Triple(0x99FF5FA2.toInt(), 400, Pair(-120, 640))
+            Triple(0xE63A5BFF.toInt(), 460, Pair(-150, -80)),
+            Triple(0xD9B23CFF.toInt(), 420, Pair(170, 330)),
+            Triple(0xD900C2A8.toInt(), 460, Pair(-150, 680))
         )
         for ((color, size, pos) in blobs) {
             val b = Glass.blob(this, color, size)
@@ -584,7 +603,7 @@ class MainActivity : Activity() {
         window.setBackgroundBlurRadius(dp(70))
         frame.background = GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            intArrayOf(0x990B1026.toInt(), 0x802A1B5E.toInt(), 0x730E4A5C)
+            intArrayOf(0xB30A0B14.toInt(), 0x990D0F1E.toInt(), 0xB30A0B14.toInt())
         )
     }
 
