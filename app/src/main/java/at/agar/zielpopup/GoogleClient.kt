@@ -28,7 +28,7 @@ object GoogleClient {
 
     private const val FIELDS =
         "places.id,places.displayName,places.types,places.primaryType,places.formattedAddress," +
-                "places.location,places.businessStatus,places.currentOpeningHours.openNow," +
+                "places.location,places.businessStatus,places.primaryTypeDisplayName,places.currentOpeningHours.openNow," +
                 "places.currentOpeningHours.weekdayDescriptions,places.regularOpeningHours.periods"
 
     private var prefs: SharedPreferences? = null
@@ -141,6 +141,9 @@ object GoogleClient {
             val name = p.optJSONObject("displayName")?.optString("text")?.takeIf { it.isNotEmpty() }
             name?.let { tags["name"] = it }
             mapTypes(types, name ?: "", tags)
+            tags["_gtypes"] = types.joinToString(",")
+            p.optJSONObject("primaryTypeDisplayName")?.optString("text")?.takeIf { it.isNotEmpty() }
+                ?.let { tags["_gtype_name"] = it } // deutsche Bezeichnung, z. B. "Blumengeschäft"
 
             val first = p.optString("formattedAddress").substringBefore(",").trim()
             if (first.isNotEmpty()) {

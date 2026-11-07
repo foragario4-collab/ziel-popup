@@ -2,7 +2,8 @@ package at.agar.zielpopup
 
 import java.util.Calendar
 
-data class PopupLine(val text: String, val state: OpenState?, val bold: Boolean = false)
+/** style: 0 = normal, 1 = groß (was ist es), 2 = Abschnitts-Überschrift */
+data class PopupLine(val text: String, val state: OpenState?, val bold: Boolean = false, val style: Int = 0)
 data class AnalysisResult(val title: String, val lines: List<PopupLine>)
 
 data class Category(val emoji: String, val label: String, val visit: String, val prio: Int)
@@ -44,15 +45,17 @@ object Analyzer {
         // Ungenaue Eingabe in den offiziellen Straßennamen umwandeln ("karl gunsam" -> "Karl-Gunsam-Gasse")
         val official = try { OsmClient.wienResolveStreet(parsed.street) } catch (e: Exception) { null }
         val addr = if (official != null) parsed.copy(street = official) else parsed
-        val shown = "📍 " + addr.street + (addr.rawNumber?.let { " $it" } ?: "")
+        val shown = "📍 " + addr.street + (addr.rawNumber?.let { " $it" } ?: "") +
+                (addr.postcode?.let { ", $it Wien" } ?: ", Wien")
         val r = search(addr)
-        return AnalysisResult(r.title, listOf(PopupLine(shown, null)) + r.lines)
+        // oben klein die Adresse, darunter groß: was ist es
+        return AnalysisResult(shown, listOf(PopupLine(r.title, null, bold = true, style = 1)) + r.lines)
     }
 
     private fun search(addr: ParsedAddress): AnalysisResult {
         val rx = AddressParser.streetRegex(addr.street)
         return if (addr.houseNumbers.isEmpty()) {
-            streetMode(addr, rx, "🛣️ Keine Hausnummer – ganze Gasse geprüft")
+            streetMode(addr, rx, "🛣️ Ganze Gasse (keine Hausnummer)")
         } else {
             pointMode(addr, rx)
         }
@@ -105,22 +108,21 @@ object Analyzer {
         val now = Calendar.getInstance()
         val streetRegex = Regex(rx, RegexOption.IGNORE_CASE)
 
-        val exact = places.filter { isExact(it, streetRegex, addr.houseNumbers) }
+        val exact = places.filter { isExact(it, streetRegex, addr.houseNumbers) && Kinds.isRealPlace(it.tags) }
         val exactIds = exact.map { it.id }.toSet()
 
         val lines = ArrayList<PopupLine>()
         val title: String
         if (exact.isNotEmpty()) {
             val first = exact.first()
-            val cat = classify(first.tags) ?: Category("📍", "Ort", "Besuch", 9)
-            title = "🎯 Genaue Adresse: ${first.tags["name"] ?: cat.label}"
+            title = Kinds.describe(first.tags) // z. B. "💐 Blumengeschäft · Blumen Waf"
             for (p in exact) {
-                val c = classify(p.tags) ?: Category("📍", "Ort", "Besuch", 9)
+                if (p !== first) lines.add(PopupLine(Kinds.describe(p.tags), null, bold = true))
                 val st = stateOf(p, now)
-                lines.add(PopupLine("${c.emoji} ${p.tags["name"] ?: c.label} · ${c.label} · ${stateText(st)}${hoursText(p)}", st, bold = true))
+                lines.add(PopupLine("${stateText(st)}${hoursText(p)}", st, bold = true))
             }
         } else {
-            title = "🏠 Wohnadresse (vermutlich)"
+            title = "🏠 Wohnadresse"
         }
 
         val nearby = places
@@ -128,6 +130,7 @@ object Analyzer {
             .mapNotNull { p -> toCandidate(p, now, distanceM(lat, lon, p.lat, p.lon)) }
             .sortedWith(compareBy({ stateRank(it.state) }, { it.cat.prio }, { it.dist ?: 0 }))
 
+        if (nearby.isNotEmpty()) lines.add(PopupLine("In der Nähe · bis $RADIUS_M m", null, style = 2))
         addCandidates(lines, nearby)
         if (exact.isEmpty() && nearby.isEmpty()) {
             lines.add(PopupLine("Nichts im Umkreis von $RADIUS_M m", null))
@@ -199,6 +202,7 @@ object Analyzer {
             .sortedWith(compareBy({ stateRank(it.state) }, { it.cat.prio }, { it.place.tags["name"] ?: "" }))
 
         val lines = ArrayList<PopupLine>()
+        if (list.isNotEmpty()) lines.add(PopupLine("In der Gasse · ${list.size} Orte", null, style = 2))
         addCandidates(lines, list)
         if (list.isEmpty()) lines.add(PopupLine("Wohngegend – keine Lokale in der Gasse gefunden", null))
         note?.let { lines.add(PopupLine(it, null)) }

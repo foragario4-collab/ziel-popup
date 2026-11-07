@@ -42,10 +42,10 @@ object OverlayPopup {
             gravity = Gravity.CENTER_VERTICAL
         }
         header.addView(TextView(ctx).apply {
-            text = result.title
-            textSize = 19f
-            setTextColor(Glass.TEXT)
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            text = result.title // Adresse, klein
+            textSize = 14f
+            setTextColor(Glass.TEXT_SOFT)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         header.addView(TextView(ctx).apply {
             text = "✕"
@@ -62,10 +62,26 @@ object OverlayPopup {
         for (line in result.lines) {
             list.addView(TextView(ctx).apply {
                 text = line.text
-                textSize = 16f
-                setPadding(0, ctx.dp(6), 0, 0)
                 setTextColor(Glass.stateColor(line.state))
-                if (line.bold) setTypeface(typeface, Typeface.BOLD)
+                when (line.style) {
+                    1 -> { // groß: was ist es
+                        textSize = 22f
+                        typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                        setPadding(0, ctx.dp(2), 0, ctx.dp(2))
+                    }
+                    2 -> { // Abschnitt
+                        text = line.text.uppercase()
+                        textSize = 12f
+                        letterSpacing = 0.08f
+                        setTextColor(Glass.TEXT_SOFT)
+                        setPadding(0, ctx.dp(14), 0, ctx.dp(2))
+                    }
+                    else -> {
+                        textSize = 15.5f
+                        setPadding(0, ctx.dp(6), 0, 0)
+                        if (line.bold) setTypeface(typeface, Typeface.BOLD)
+                    }
+                }
             })
         }
         val maxH = (ctx.resources.displayMetrics.heightPixels * 0.55).toInt()
