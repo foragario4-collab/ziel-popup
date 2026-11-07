@@ -70,13 +70,15 @@ class MystroReaderService : AccessibilityService() {
         lastTime = now
         busy = true
 
-        OverlayPopup.show(this, AnalysisResult("🔎 Ziel: $dest", emptyList()))
+        val eta = MystroParser.findEtaMinutes(texts)
+        OverlayPopup.show(this, AnalysisResult("🔎 Ziel: $dest"))
         val key = Prefs.activeKey(this)
+        val radius = Prefs.radius(this)
         Thread {
             val res = try {
-                Analyzer.analyze(dest, key)
+                Analyzer.analyze(dest, key, radius).copy(etaMin = eta)
             } catch (e: Exception) {
-                AnalysisResult("⚠️ Fehler bei der Suche", listOf(PopupLine(e.message ?: "", null)))
+                AnalysisResult("⚠️ Fehler bei der Suche", notes = listOf(e.message ?: ""))
             }
             History.add(this, dest, res, "Mystro")
             handler.post {

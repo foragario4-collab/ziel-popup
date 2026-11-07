@@ -13,9 +13,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
@@ -23,11 +20,12 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.CheckBox
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import java.text.SimpleDateFormat
@@ -43,11 +41,12 @@ class MainActivity : Activity() {
 
     private lateinit var input: EditText
     private lateinit var resultBox: LinearLayout
-    private lateinit var statusRow: LinearLayout
+    private lateinit var statusBox: LinearLayout
+    private lateinit var displayBox: LinearLayout
+    private var lastResult: AnalysisResult? = null
     private lateinit var historyBox: LinearLayout
     private lateinit var settingsBox: LinearLayout
 
-    private val orange = 0xFFFFC46B.toInt()
     private val iosGreen = 0xFF34C759.toInt()
 
     // ---------------------------------------------------------------- Aufbau
@@ -75,12 +74,9 @@ class MainActivity : Activity() {
         // Kopf
         root.addView(Glass.label(this, "Ziel", 38f, Glass.TEXT, bold = true))
         root.addView(Glass.label(this, "Was ist am Fahrtziel?", 16f), lp(dp(2)))
-        statusRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        root.addView(HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-            addView(statusRow)
-        }, lp(dp(16)))
+        // Status: feste Box, eine Zeile pro Status – nichts zum Seitwärts-Wischen
+        statusBox = card(4)
+        root.addView(statusBox, lp(dp(16)))
 
         // Ziel prüfen
         root.addView(sectionTitle("Ziel prüfen"), lp(dp(28)))
@@ -107,6 +103,12 @@ class MainActivity : Activity() {
         root.addView(sectionTitle("Zuletzt geprüft"), lp(dp(28)))
         historyBox = card(4)
         root.addView(historyBox, lp(dp(8)))
+
+        // Anzeige im Popup: Sortieren, Filter, Umkreis, Kategorien
+        root.addView(sectionTitle("Anzeige im Popup"), lp(dp(28)))
+        displayBox = card(4)
+        root.addView(displayBox, lp(dp(8)))
+        buildDisplaySettings()
 
         // Einstellungen
         root.addView(sectionTitle("Einstellungen"), lp(dp(28)))
@@ -152,23 +154,22 @@ class MainActivity : Activity() {
         resultBox.visibility = View.VISIBLE
         resultBox.removeAllViews()
         resultBox.addView(loadingRow())
-        OverlayPopup.show(this, AnalysisResult("🔎 Suche läuft …", listOf(PopupLine(text, null))))
+        OverlayPopup.show(this, AnalysisResult("🔎 Suche läuft …", notes = listOf(text)))
         val key = Prefs.activeKey(this)
+        val radius = Prefs.radius(this)
         worker.execute {
             val result = try {
-                Analyzer.analyze(text, key)
+                Analyzer.analyze(text, key, radius)
             } catch (e: Exception) {
                 AnalysisResult(
                     "⚠️ Fehler bei der Suche",
-                    listOf(PopupLine("${e.message ?: "Unbekannter Fehler"} – ist das Internet an?", null))
+                    notes = listOf("${e.message ?: "Unbekannter Fehler"} – ist das Internet an?")
                 )
             }
             History.add(this, text, result, "Manuell")
             runOnUiThread {
                 if (isFinishing) return@runOnUiThread
-                resultBox.removeAllViews()
-                resultBox.addView(Glass.label(this, result.title, 14f), lp(0))
-                resultBox.addView(ResultView.lines(this, result), lp(dp(4)))
+                showResult(result)
                 OverlayPopup.show(this, result)
                 refreshHistory()
                 refreshSettings()
@@ -190,35 +191,146 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- Status oben
 
     private fun refreshStatus() {
-        statusRow.removeAllViews()
-        addPill(if (mystroEnabled()) "Mystro-Leser an" else "Mystro-Leser aus",
-            if (mystroEnabled()) Glass.GREEN else orange) { openAccessibility() }
-        addPill(if (overlayOk()) "Popup erlaubt" else "Popup erlauben",
-            if (overlayOk()) Glass.GREEN else orange) { openOverlay() }
-        val googleText: String
-        val googleColor: Int
+        statusBox.removeAllViews()
+        val mOn = mystroEnabled()
+        statusRow("Mystro-Leser", if (mOn) "An" else "Aus", if (mOn) Glass.GREEN else Glass.ORANGE) { openAccessibility() }
+        statusBox.addView(separator())
+        val oOk = overlayOk()
+        statusRow("Popup", if (oOk) "Erlaubt" else "Erlauben", if (oOk) Glass.GREEN else Glass.ORANGE) { openOverlay() }
+        statusBox.addView(separator())
         when {
-            Prefs.rawKey(this) == null -> { googleText = "Nur OpenStreetMap"; googleColor = Glass.GREY }
-            Prefs.googleOn(this) -> { googleText = "Google an"; googleColor = Glass.GREEN }
-            else -> { googleText = "Google pausiert"; googleColor = Glass.GREY }
+            Prefs.rawKey(this) == null -> statusRow("Google", "Nur OpenStreetMap", Glass.GREY, null)
+            Prefs.googleOn(this) -> statusRow("Google", "An", Glass.GREEN, null)
+            else -> statusRow("Google", "Pausiert", Glass.ORANGE, null)
         }
-        addPill(googleText, googleColor) { /* Einstellungen sind unten */ }
     }
 
-    private fun addPill(text: String, dotColor: Int, onClick: () -> Unit) {
-        val sb = SpannableStringBuilder("●  ").append(text)
-        sb.setSpan(ForegroundColorSpan(dotColor), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        val pill = TextView(this).apply {
-            this.text = sb
-            textSize = 13f
-            setTextColor(Glass.TEXT)
-            setPadding(dp(12), dp(8), dp(14), dp(8))
-            background = Glass.pressable(this@MainActivity, 18, 0x1FFFFFFF)
-            setOnClickListener { haptic(it); onClick() }
+    /** Eine Status-Zeile: LED · Name · Zustand (in der LED-Farbe) */
+    private fun statusRow(name: String, state: String, color: Int, onClick: (() -> Unit)?) {
+        val r = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(12), 0, dp(12))
         }
-        statusRow.addView(pill, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { rightMargin = dp(8) })
+        r.addView(Glass.dot(this, color, 12), LinearLayout.LayoutParams(dp(12), dp(12)).apply { rightMargin = dp(14) })
+        r.addView(Glass.label(this, name, 16f, Glass.TEXT), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        r.addView(Glass.label(this, if (onClick != null) "$state  ›" else state, 15f, color))
+        if (onClick != null) {
+            r.isClickable = true
+            r.background = RippleDrawable(ColorStateList.valueOf(0x22FFFFFF), null, ColorDrawable(Color.WHITE))
+            r.setOnClickListener { haptic(it); onClick() }
+        }
+        statusBox.addView(r)
+    }
+
+    // ---------------------------------------------------------------- Ergebnis in der App
+
+    private fun showResult(result: AnalysisResult) {
+        lastResult = result
+        resultBox.removeAllViews()
+        resultBox.addView(ResultView.header(this, result), lp(0))
+        resultBox.addView(ResultView.body(this, result), lp(dp(2)))
+    }
+
+    /** Nach einer Änderung in "Anzeige im Popup" das letzte Ergebnis neu zeichnen */
+    private fun redrawResult() {
+        lastResult?.let { if (resultBox.visibility == View.VISIBLE) showResult(it) }
+    }
+
+    // ---------------------------------------------------------------- Anzeige im Popup
+
+    private fun buildDisplaySettings() {
+        displayBox.removeAllViews()
+
+        // Sortieren
+        displayBox.addView(Glass.label(this, "Sortieren nach", 13f).apply { setPadding(0, dp(12), 0, dp(2)) })
+        val openFirst = Prefs.openFirst(this)
+        displayBox.addView(choiceRow("Nähe", !openFirst) {
+            Prefs.setOpenFirst(this, false); buildDisplaySettings(); redrawResult()
+        })
+        displayBox.addView(separator())
+        displayBox.addView(choiceRow("Geöffnet zuerst, dann Nähe", openFirst) {
+            Prefs.setOpenFirst(this, true); buildDisplaySettings(); redrawResult()
+        })
+        displayBox.addView(separator())
+
+        // Filter
+        displayBox.addView(row("Nur geöffnete anzeigen", null, switch(Prefs.onlyOpen(this)) { on ->
+            Prefs.setOnlyOpen(this, on); redrawResult()
+        }, onClick = null))
+        displayBox.addView(separator())
+        displayBox.addView(row("Unklare (weiß) anzeigen", "Orte ohne bekannte Öffnungszeiten", switch(Prefs.showUnknown(this)) { on ->
+            Prefs.setShowUnknown(this, on); redrawResult()
+        }, onClick = null))
+        displayBox.addView(separator())
+
+        // Umkreis
+        val radiusLabel = Glass.label(this, "${Prefs.radius(this)} m", 16f, Glass.TEXT)
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(12), 0, 0)
+        }
+        head.addView(Glass.label(this, "Umkreis", 17f, Glass.TEXT), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(radiusLabel)
+        displayBox.addView(head)
+        val step = 5
+        displayBox.addView(SeekBar(this).apply {
+            max = (Prefs.RADIUS_MAX - Prefs.RADIUS_MIN) / step
+            progress = (Prefs.radius(this@MainActivity) - Prefs.RADIUS_MIN) / step
+            progressTintList = ColorStateList.valueOf(iosGreen)
+            thumbTintList = ColorStateList.valueOf(Color.WHITE)
+            progressBackgroundTintList = ColorStateList.valueOf(0x55FFFFFF)
+            setPadding(dp(4), dp(12), dp(4), dp(12))
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                    radiusLabel.text = "${Prefs.RADIUS_MIN + p * step} m"
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {
+                    Prefs.setRadius(this@MainActivity, Prefs.RADIUS_MIN + (sb?.progress ?: 0) * step)
+                }
+            })
+        }, lp(0))
+        displayBox.addView(Glass.label(this, "Gilt ab der nächsten Prüfung", 12.5f).apply { setPadding(0, 0, 0, dp(10)) })
+        displayBox.addView(separator())
+
+        // Kategorien, zwei Spalten
+        displayBox.addView(Glass.label(this, "Kategorien", 13f).apply { setPadding(0, dp(12), 0, dp(4)) })
+        val off = Prefs.catsOff(this)
+        Cats.ALL.chunked(2).forEach { pair ->
+            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (c in pair) {
+                line.addView(CheckBox(this).apply {
+                    text = "${c.emoji} ${c.label}"
+                    textSize = 14.5f
+                    setTextColor(Glass.TEXT)
+                    buttonTintList = ColorStateList.valueOf(Color.WHITE)
+                    isChecked = c.key !in off
+                    setPadding(dp(4), dp(8), 0, dp(8))
+                    setOnCheckedChangeListener { v, on ->
+                        haptic(v)
+                        Prefs.setCatOn(this@MainActivity, c.key, on)
+                        redrawResult()
+                    }
+                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            if (pair.size == 1) line.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+            displayBox.addView(line)
+        }
+        displayBox.addView(View(this), LinearLayout.LayoutParams(1, dp(8)))
+    }
+
+    /** Auswahlzeile mit Häkchen rechts */
+    private fun choiceRow(title: String, selected: Boolean, onClick: () -> Unit) =
+        row(title, null, Glass.label(this, if (selected) "✓" else "", 18f, iosGreen), onClick = onClick)
+
+    private fun switch(checked: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {
+        isChecked = checked
+        val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+        thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, 0xFFE6E6EA.toInt()))
+        trackTintList = ColorStateList(states, intArrayOf(iosGreen, 0x55FFFFFF))
+        setOnCheckedChangeListener { v, on -> haptic(v); onChange(on) }
     }
 
     // ---------------------------------------------------------------- Verlauf

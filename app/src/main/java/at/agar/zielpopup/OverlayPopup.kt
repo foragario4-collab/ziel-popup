@@ -3,7 +3,6 @@ package at.agar.zielpopup
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PixelFormat
-import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -42,18 +41,13 @@ object OverlayPopup {
             elevation = ctx.dp(14).toFloat()
         }
 
-        // Kopf: Adresse klein + Schließen
+        // Kopf: was ist es (groß) · Adresse · Uhrzeit + Schließen
         val header = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            gravity = Gravity.TOP
         }
-        header.addView(TextView(ctx).apply {
-            text = result.title
-            textSize = 14f
-            setTextColor(Glass.TEXT_SOFT)
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            maxLines = 2
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(ResultView.header(ctx, result),
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         header.addView(TextView(ctx).apply {
             text = "✕"
             textSize = 15f
@@ -61,15 +55,15 @@ object OverlayPopup {
             gravity = Gravity.CENTER
             background = Glass.pressable(ctx, 16, 0x26FFFFFF)
             setOnClickListener { hide(ctx) }
-        }, LinearLayout.LayoutParams(ctx.dp(32), ctx.dp(32)))
+        }, LinearLayout.LayoutParams(ctx.dp(32), ctx.dp(32)).apply { leftMargin = ctx.dp(10) })
         box.addView(header)
 
-        // Inhalt, scrollbar bis ca. 55 % der Bildschirmhöhe
+        // Liste, scrollbar bis ca. 55 % der Bildschirmhöhe
         val maxH = (ctx.resources.displayMetrics.heightPixels * 0.55).toInt()
         val scroll = MaxHeightScrollView(ctx, maxH).apply {
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
-            addView(ResultView.lines(ctx, result))
+            addView(ResultView.body(ctx, result))
             setOnTouchListener { _, ev ->
                 if (ev.action == MotionEvent.ACTION_DOWN) restartTimer()
                 false
@@ -77,7 +71,7 @@ object OverlayPopup {
         }
         box.addView(scroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = ctx.dp(4) })
+        ))
 
         // Tippen außerhalb -> schließen
         box.setOnTouchListener { _, ev ->

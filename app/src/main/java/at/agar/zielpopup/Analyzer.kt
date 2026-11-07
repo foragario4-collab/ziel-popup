@@ -2,96 +2,150 @@ package at.agar.zielpopup
 
 import java.util.Calendar
 
-/** style: 0 = normal, 1 = groß (was ist es), 2 = Abschnitts-Überschrift */
-data class PopupLine(val text: String, val state: OpenState?, val bold: Boolean = false, val style: Int = 0)
-data class AnalysisResult(val title: String, val lines: List<PopupLine>)
+/** Eine Kategorie, die man in den Einstellungen ein- und ausschalten kann */
+data class Category(val key: String, val emoji: String, val label: String, val visit: String?, val prio: Int)
 
-data class Category(val emoji: String, val label: String, val visit: String, val prio: Int)
+/**
+ * Ein Ort in der Liste.
+ *  head  = "⛪ Kirchenbesuch möglich"
+ *  name  = "Pfarrkirche St. Leopold"
+ *  info  = "jetzt geöffnet · heute 07:00–19:00"
+ */
+data class PlaceRow(
+    val catKey: String?,
+    val head: String,
+    val name: String,
+    val dist: Int?,
+    val houseNo: String?,
+    val state: OpenState,
+    val info: String
+)
 
-private data class Candidate(val place: OsmPlace, val cat: Category, val state: OpenState, val dist: Int?)
+/**
+ * Ergebnis einer Prüfung.
+ *  headline = was ist es (groß), title = Adresse, nearby = Orte rundherum.
+ *  Sortieren und Filtern passiert erst beim Anzeigen (siehe ResultView),
+ *  damit Änderungen in den Einstellungen sofort wirken.
+ */
+data class AnalysisResult(
+    val title: String,
+    val headline: String? = null,
+    val exact: List<PlaceRow> = emptyList(),
+    val nearby: List<PlaceRow> = emptyList(),
+    val streetMode: Boolean = false,
+    val radius: Int = 25,
+    val notes: List<String> = emptyList(),
+    val time: Long = System.currentTimeMillis(),
+    val etaMin: Int? = null
+)
+
+object Cats {
+    val ALL = listOf(
+        Category("bar", "🍸", "Bar", "Barbesuch", 2),
+        Category("lokal", "🍽️", "Restaurant / Café", "Lokalbesuch", 4),
+        Category("disko", "🪩", "Diskothek / Club", "Clubbesuch", 1),
+        Category("nachtclub", "💃", "Nachtclub", "Nachtclubbesuch", 1),
+        Category("laufhaus", "🔞", "Laufhaus", "Laufhausbesuch", 1),
+        Category("saunaclub", "🧖", "Saunaclub", "Saunaclubbesuch", 1),
+        Category("sexstudio", "🔞", "Sexstudio / Erotik", "Studiobesuch", 1),
+        Category("casino", "🎰", "Casino / Wettbüro", "Casinobesuch", 2),
+        Category("kirche", "⛪", "Kirche", "Kirchenbesuch", 3),
+        Category("synagoge", "✡️", "Synagoge", "Synagogenbesuch", 3),
+        Category("moschee", "🕌", "Moschee", "Moscheebesuch", 3),
+        Category("hotel", "🏨", "Hotel", "Hotelbesuch", 3),
+        Category("spital", "🏥", "Spital", "Spitalbesuch", 3),
+        Category("bahnhof", "🚉", "Bahnhof", null, 3),
+        Category("theater", "🎭", "Theater, Kino & Events", "Theater-/Eventbesuch", 3),
+        Category("fitness", "💪", "Fitnessstudio", "Trainingsbesuch", 4),
+        Category("massage", "💆", "Massage & Kosmetik", "Studiobesuch", 4)
+    )
+    private val BY_KEY = ALL.associateBy { it.key }
+    fun get(key: String): Category = BY_KEY.getValue(key)
+}
 
 object Analyzer {
-    const val RADIUS_M = 25   // Umkreis um die Hausnummer (Adressen sind nie ganz genau, daher etwas mehr als 20 m)
     const val STREET_M = 20   // Streifen links/rechts der Gasse, wenn keine Hausnummer da ist
-    const val MAX_LINES = 60   // praktisch alles anzeigen, das Popup scrollt
     private var key: String? = null
 
     private val FILTERS = listOf(
-        """["amenity"~"^(bar|pub|biergarten|nightclub|restaurant|cafe|fast_food|place_of_worship|brothel|stripclub|swingerclub|casino|hospital|cinema|theatre)$"]""",
-        """["shop"~"^(erotic|massage|tattoo|beauty)$"]""",
-        """["leisure"~"^(fitness_centre|adult_gaming_centre)$"]""",
+        """["amenity"~"^(bar|pub|biergarten|nightclub|restaurant|cafe|fast_food|place_of_worship|brothel|stripclub|swingerclub|casino|gambling|hospital|cinema|theatre|events_venue)$"]""",
+        """["shop"~"^(erotic|massage|tattoo|beauty|bookmaker)$"]""",
+        """["leisure"~"^(fitness_centre|adult_gaming_centre|sauna)$"]""",
         """["tourism"~"^(hotel|hostel|guest_house)$"]""",
+        """["railway"="station"]""",
         """["massage"]"""
     )
 
     private val cache = HashMap<String, Pair<Long, AnalysisResult>>()
     private const val CACHE_MS = 20 * 60 * 1000L
 
-    fun analyze(input: String, googleKey: String? = null): AnalysisResult {
+    fun analyze(input: String, googleKey: String? = null, radius: Int = 25): AnalysisResult {
         val cacheKey = input.lowercase().replace(Regex("[^a-z0-9äöüß]"), "") +
-                (if (googleKey.isNullOrBlank()) "|osm" else "|g")
+                (if (googleKey.isNullOrBlank()) "|osm" else "|g") + "|$radius"
         cache[cacheKey]?.let { (time, res) ->
-            if (System.currentTimeMillis() - time < CACHE_MS) return res
+            if (System.currentTimeMillis() - time < CACHE_MS) return res.copy(time = System.currentTimeMillis())
         }
-        val res = analyzeFresh(input, googleKey)
+        val res = analyzeFresh(input, googleKey, radius)
         cache[cacheKey] = System.currentTimeMillis() to res
         return res
     }
 
-    private fun analyzeFresh(input: String, googleKey: String?): AnalysisResult {
+    private fun analyzeFresh(input: String, googleKey: String?, radius: Int): AnalysisResult {
         key = googleKey?.trim()?.takeIf { it.isNotEmpty() }
         val parsed = AddressParser.parse(input)
-        if (parsed.street.isBlank()) return AnalysisResult("❓ Adresse nicht erkannt", emptyList())
+        if (parsed.street.isBlank()) return AnalysisResult("❓ Adresse nicht erkannt")
 
         // Ungenaue Eingabe in den offiziellen Straßennamen umwandeln ("karl gunsam" -> "Karl-Gunsam-Gasse")
         val official = try { OsmClient.wienResolveStreet(parsed.street) } catch (e: Exception) { null }
         val addr = if (official != null) parsed.copy(street = official) else parsed
         val shown = "📍 " + addr.street + (addr.rawNumber?.let { " $it" } ?: "") +
                 (addr.postcode?.let { ", $it Wien" } ?: ", Wien")
-        val r = search(addr)
-        // oben klein die Adresse, darunter groß: was ist es
-        return AnalysisResult(shown, listOf(PopupLine(r.title, null, bold = true, style = 1)) + r.lines)
+        return search(addr, radius).copy(title = shown)
     }
 
-    private fun search(addr: ParsedAddress): AnalysisResult {
+    private fun search(addr: ParsedAddress, radius: Int): AnalysisResult {
         val rx = AddressParser.streetRegex(addr.street)
         return if (addr.houseNumbers.isEmpty()) {
             streetMode(addr, rx, "🛣️ Ganze Gasse (keine Hausnummer)")
         } else {
-            pointMode(addr, rx)
+            pointMode(addr, rx, radius)
         }
     }
 
+    /** Bei Google immer etwas mehr holen (Adresspunkte sind nie ganz genau); gerundet, damit der Zwischenspeicher greift */
+    private fun fetchRadius(radius: Int): Int = if (radius <= 25) 45 else ((radius + 20 + 24) / 25) * 25
+
     // ---------- Mit Hausnummer ----------
-    private fun pointMode(addr: ParsedAddress, rx: String): AnalysisResult {
+    private fun pointMode(addr: ParsedAddress, rx: String, radius: Int): AnalysisResult {
         val q = "${addr.street} ${addr.rawNumber}, ${addr.postcode ?: ""} Wien".replace("  ", " ")
         // Zuerst das Adressverzeichnis der Stadt Wien, dann OpenStreetMap
         val pos = (try { OsmClient.wienPoint(addr.street, addr.rawNumber ?: "", addr.postcode) } catch (e: Exception) { null })
             ?: (try { OsmClient.geocode(q) } catch (e: Exception) { null })
             ?: return streetMode(addr, rx, "⚠️ Hausnummer nicht gefunden – ganze Gasse geprüft")
         val (lat, lon) = pos
+        val fetchR = fetchRadius(radius)
 
         val numRx = "^(" + addr.houseNumbers.joinToString("|") + ")([^0-9].*)?$"
         // Nur im kleinen Umkreis suchen – ganz Wien zu durchsuchen war zu langsam (Timeout)
         val sb = StringBuilder("[out:json][timeout:15];(")
-        for (f in FILTERS) sb.append("nwr(around:$RADIUS_M,$lat,$lon)$f;")
+        for (f in FILTERS) sb.append("nwr(around:$radius,$lat,$lon)$f;")
         sb.append("nwr(around:80,$lat,$lon)[\"addr:housenumber\"~\"$numRx\"][\"name\"];")
         sb.append(");out center tags;")
 
-        var note: String? = null
+        val notes = ArrayList<String>()
         val places: List<OsmPlace> = run {
             // 1. Google (wenn Schlüssel eingetragen) – kennt fast alle Lokale
             val k = key
             if (k != null) {
                 try {
-                    return@run GoogleClient.nearby(k, lat, lon, (RADIUS_M + 20).toDouble())
+                    return@run GoogleClient.nearby(k, lat, lon, fetchR.toDouble())
                 } catch (e: Exception) {
-                    note = "⚠️ ${e.message}"
+                    notes.add("⚠️ ${e.message}")
                 }
             }
             // 2. Schnellsuche (Photon) – meist in 1–2 Sekunden fertig
             try {
-                val near = OsmClient.fastNear(lat, lon, RADIUS_M + 20)
+                val near = OsmClient.fastNear(lat, lon, fetchR)
                 // zusätzlich: was steht genau an der Adresse (z. B. Synagoge, Lokal im Haus)?
                 val here = OsmClient.reverseAt(lat, lon)
                 return@run (if (here != null) near + here else near).distinctBy { it.id }
@@ -101,43 +155,30 @@ object Analyzer {
             try {
                 OsmClient.overpass(sb.toString())
             } catch (e: Exception) {
-                if (note == null) note = "ℹ️ Ersatzsuche (Overpass nicht erreichbar)"
-                OsmClient.fallbackPoint(lat, lon, RADIUS_M + 20)
-                    .filter { distanceM(lat, lon, it.lat, it.lon) <= RADIUS_M + 15 || it.tags.containsKey("addr:housenumber") }
+                if (notes.isEmpty()) notes.add("ℹ️ Ersatzsuche (Overpass nicht erreichbar)")
+                OsmClient.fallbackPoint(lat, lon, fetchR)
+                    .filter { distanceM(lat, lon, it.lat, it.lon) <= radius + 15 || it.tags.containsKey("addr:housenumber") }
             }
         }
         val now = Calendar.getInstance()
         val streetRegex = Regex(rx, RegexOption.IGNORE_CASE)
 
-        val exact = places.filter { isExact(it, streetRegex, addr.houseNumbers) && Kinds.isRealPlace(it.tags) }
-        val exactIds = exact.map { it.id }.toSet()
+        val exactPlaces = places.filter { isExact(it, streetRegex, addr.houseNumbers) && Kinds.isRealPlace(it.tags) }
+        val exactIds = exactPlaces.map { it.id }.toSet()
 
-        val lines = ArrayList<PopupLine>()
-        val title: String
-        if (exact.isNotEmpty()) {
-            val first = exact.first()
-            title = Kinds.describe(first.tags) // z. B. "💐 Blumengeschäft · Blumen Waf"
-            for (p in exact) {
-                if (p !== first) lines.add(PopupLine(Kinds.describe(p.tags), null, bold = true))
-                val st = stateOf(p, now)
-                lines.add(PopupLine("${statusText(p, st)}${hoursText(p)}", st, bold = true))
-            }
-        } else {
-            title = "🏠 Wohnadresse"
+        val headline = exactPlaces.firstOrNull()?.let { Kinds.describe(it.tags) } ?: "🏠 Wohnadresse"
+        val exact = exactPlaces.map { p ->
+            val (emoji, label) = Kinds.of(p.tags) ?: ("📍" to "Ort")
+            val st = stateOf(p, now)
+            PlaceRow(null, "$emoji $label", p.tags["name"] ?: label, null, null, st, infoText(p, st))
         }
 
         val nearby = places
             .filter { it.id !in exactIds }
-            .mapNotNull { p -> toCandidate(p, now, distanceM(lat, lon, p.lat, p.lon)) }
-            .sortedWith(compareBy({ stateRank(it.state) }, { it.cat.prio }, { it.dist ?: 0 }))
+            .mapNotNull { p -> toRow(p, now, distanceM(lat, lon, p.lat, p.lon)) }
+            .filter { (it.dist ?: 0) <= radius }
 
-        if (nearby.isNotEmpty()) lines.add(PopupLine("In der Nähe · bis $RADIUS_M m", null, style = 2))
-        addCandidates(lines, nearby)
-        if (exact.isEmpty() && nearby.isEmpty()) {
-            lines.add(PopupLine("Nichts im Umkreis von $RADIUS_M m", null))
-        }
-        note?.let { lines.add(PopupLine(it, null)) }
-        return AnalysisResult(title, lines)
+        return AnalysisResult("", headline, exact, nearby, streetMode = false, radius = radius, notes = notes)
     }
 
     // ---------- Ohne Hausnummer: ganze Gasse ----------
@@ -154,28 +195,27 @@ object Analyzer {
 
         val now = Calendar.getInstance()
         val streetRegex = Regex(rx, RegexOption.IGNORE_CASE)
-        var note: String? = null
+        val notes = ArrayList<String>()
+        val notFound = AnalysisResult("", "❓ Gasse nicht gefunden: ${addr.street}")
         val box: DoubleArray? by lazy { streetBox(addr) } // nur einmal abfragen
         val raw: List<OsmPlace> = run {
             // 1. Google (wenn Schlüssel eingetragen): Mitte der Gasse, Umkreis = halbe Länge
             val k = key
             if (k != null) {
                 try {
-                    val b = box
-                        ?: return AnalysisResult("❓ Gasse nicht gefunden: ${addr.street}", emptyList())
+                    val b = box ?: return notFound
                     val cLat = (b[0] + b[2]) / 2
                     val cLon = (b[1] + b[3]) / 2
                     val r = (distanceM(b[0], b[1], b[2], b[3]) / 2).coerceIn(40, 450)
                     return@run GoogleClient.nearby(k, cLat, cLon, r.toDouble())
                         .filter { p -> p.tags["addr:street"]?.let { streetRegex.matches(it) } ?: false }
                 } catch (e: Exception) {
-                    note = "⚠️ ${e.message}"
+                    notes.add("⚠️ ${e.message}")
                 }
             }
             // 2. Schnellsuche (Photon) entlang der Gasse
             try {
-                val b = box
-                    ?: return AnalysisResult("❓ Gasse nicht gefunden: ${addr.street}", emptyList())
+                val b = box ?: return notFound
                 val cLat = (b[0] + b[2]) / 2
                 val cLon = (b[1] + b[3]) / 2
                 val r = (distanceM(b[0], b[1], b[2], b[3]) / 2).coerceIn(40, 600) + 20
@@ -191,23 +231,14 @@ object Analyzer {
             try {
                 OsmClient.overpass(sb.toString())
             } catch (e: Exception) {
-                if (note == null) note = "ℹ️ Ersatzsuche (Overpass nicht erreichbar)"
-                val b = box
-                    ?: return AnalysisResult("❓ Gasse nicht gefunden: ${addr.street}", emptyList())
+                if (notes.isEmpty()) notes.add("ℹ️ Ersatzsuche (Overpass nicht erreichbar)")
+                val b = box ?: return notFound
                 OsmClient.fallbackBox(b[0], b[1], b[2], b[3])
                     .filter { p -> p.tags["addr:street"]?.let { streetRegex.matches(it) } ?: true }
             }
         }
-        val list = raw
-            .mapNotNull { toCandidate(it, now, null) }
-            .sortedWith(compareBy({ stateRank(it.state) }, { it.cat.prio }, { it.place.tags["name"] ?: "" }))
-
-        val lines = ArrayList<PopupLine>()
-        if (list.isNotEmpty()) lines.add(PopupLine("In der Gasse · ${list.size} Orte", null, style = 2))
-        addCandidates(lines, list)
-        if (list.isEmpty()) lines.add(PopupLine("Wohngegend – keine Lokale in der Gasse gefunden", null))
-        note?.let { lines.add(PopupLine(it, null)) }
-        return AnalysisResult(title, lines)
+        val list = raw.mapNotNull { toRow(it, now, null) }
+        return AnalysisResult("", title, emptyList(), list, streetMode = true, notes = notes)
     }
 
     // ---------- Hilfsfunktionen ----------
@@ -238,30 +269,18 @@ object Analyzer {
                 g.contains("lodging") || g.contains("hotel") || g.contains("hospital")
     }
 
-    private fun addCandidates(lines: MutableList<PopupLine>, list: List<Candidate>) {
-        for (c in list.take(MAX_LINES)) {
-            val name = c.place.tags["name"] ?: c.cat.label
-            val dist = c.dist?.let { "$it m, " } ?: ""
-            val head = if (c.state == OpenState.CLOSED) "${c.cat.emoji} ${c.cat.label}: $name" // zu -> nur Info
-                       else "${c.cat.emoji} ${c.cat.visit} möglich: $name"
-            lines.add(PopupLine("$head ($dist${statusText(c.place, c.state)}${hoursText(c.place)})", c.state))
-        }
-        if (list.size > MAX_LINES) lines.add(PopupLine("+ ${list.size - MAX_LINES} weitere", null))
-    }
-
-    private fun stateRank(s: OpenState) = when (s) {
-        OpenState.OPEN -> 0
-        OpenState.UNKNOWN -> 1
-        OpenState.CLOSED -> 2
-    }
-
-    private fun toCandidate(p: OsmPlace, now: Calendar, dist: Int?): Candidate? {
+    private fun toRow(p: OsmPlace, now: Calendar, dist: Int?): PlaceRow? {
         val cat = classify(p.tags) ?: return null
-        // Geschlossene Orte werden NICHT mehr versteckt: sie stehen unten, rot, mit Öffnungszeiten
-        return Candidate(p, cat, stateOf(p, now), dist)
+        val st = stateOf(p, now)
+        // Geschlossene Orte werden nicht versteckt: rote LED, nur Bezeichnung statt "… möglich"
+        val head = if (st == OpenState.CLOSED || cat.visit == null) "${cat.emoji} ${cat.label}"
+                   else "${cat.emoji} ${cat.visit} möglich"
+        return PlaceRow(cat.key, head, p.tags["name"] ?: cat.label, dist, p.tags["addr:housenumber"], st, infoText(p, st))
     }
 
-    /** Öffnungszeiten aus der Karte, kurz gefasst und auf Deutsch */
+    /** Untere Zeile: Status + heutige Öffnungszeiten */
+    private fun infoText(p: OsmPlace, s: OpenState): String = statusText(p, s) + hoursText(p)
+
     /** Status mit passendem Hinweis statt immer nur "Zeiten unbekannt" */
     private fun statusText(p: OsmPlace, s: OpenState): String {
         if (p.tags["_temp_closed"] == "1") return "vorübergehend geschlossen"
@@ -301,39 +320,49 @@ object Analyzer {
         return first in numbers
     }
 
+    private val WETT = Regex("""(wettbüro|wettbuero|sportwett|wettcafe|wett-?shop)""")
+
     fun classify(t: Map<String, String>): Category? {
         val a = t["amenity"]
         val s = t["shop"]
         val l = t["leisure"]
         val tour = t["tourism"]
         val massage = t["massage"]
+        val n = (t["name"] ?: "").lowercase()
+        val g = t["_gtypes"] ?: ""
         return when {
-            a == "brothel" || a == "stripclub" || a == "swingerclub" || s == "erotic" ||
-                    massage == "erotic" || massage == "sexual" ->
-                Category("🔞", "Erotik / Laufhaus", "Erotik-Besuch", 1)
-            a == "nightclub" -> Category("🪩", "Club", "Clubbesuch", 1)
-            a == "events_venue" -> Category("🎤", "Veranstaltungsort", "Eventbesuch", 2)
-            a == "bar" || a == "pub" || a == "biergarten" -> Category("🍸", "Bar", "Barbesuch", 2)
-            a == "casino" || l == "adult_gaming_centre" -> Category("🎰", "Casino / Spielhalle", "Casinobesuch", 2)
+            a == "brothel" || n.contains("laufhaus") || n.contains("bordell") -> Cats.get("laufhaus")
+            n.contains("saunaclub") || n.contains("sauna club") || n.contains("sauna-club") || n.contains("fkk") ->
+                Cats.get("saunaclub")
+            a == "stripclub" || a == "swingerclub" || n.contains("nachtclub") || n.contains("night club") ||
+                    n.contains("table dance") || n.contains("tabledance") -> Cats.get("nachtclub")
+            s == "erotic" || massage == "erotic" || massage == "sexual" || n.contains("sexstudio") ||
+                    n.contains("erotik") || n.contains("erotic") -> Cats.get("sexstudio")
+            a == "nightclub" || l == "dance" -> Cats.get("disko")
+            a == "bar" || a == "pub" || a == "biergarten" -> Cats.get("bar")
+            a == "casino" || a == "gambling" || l == "adult_gaming_centre" || s == "bookmaker" ||
+                    WETT.containsMatchIn(n) -> Cats.get("casino")
             a == "place_of_worship" -> when (
-                t["religion"] ?: (t["name"] ?: "").lowercase().let { n ->
+                t["religion"] ?: n.let {
                     when {
-                        n.contains("synagog") || n.contains("tempel") || n.contains("or chadasch") -> "jewish"
-                        n.contains("moschee") || n.contains("mosque") -> "muslim"
+                        it.contains("synagog") || it.contains("tempel") || it.contains("or chadasch") -> "jewish"
+                        it.contains("moschee") || it.contains("mosque") || it.contains("cami") ||
+                                it.contains("masjid") || it.contains("džamija") || it.contains("dzamija") -> "muslim"
                         else -> null
                     }
                 }
             ) {
-                "jewish" -> Category("✡️", "Synagoge", "Synagogenbesuch", 3)
-                "muslim" -> Category("🕌", "Moschee", "Moscheebesuch", 3)
-                else -> Category("⛪", "Kirche", "Kirchenbesuch", 3)
+                "jewish" -> Cats.get("synagoge")
+                "muslim" -> Cats.get("moschee")
+                else -> Cats.get("kirche")
             }
-            tour == "hotel" || tour == "hostel" || tour == "guest_house" -> Category("🏨", "Hotel", "Hotel", 3)
-            a == "hospital" -> Category("🏥", "Spital", "Spitalbesuch", 3)
-            a == "cinema" || a == "theatre" -> Category("🎭", "Kino / Theater", "Kino-/Theaterbesuch", 3)
-            s == "massage" || massage != null -> Category("💆", "Massagestudio", "Studiobesuch", 4)
-            s == "tattoo" || s == "beauty" || l == "fitness_centre" -> Category("💪", "Studio", "Studiobesuch", 4)
-            a == "restaurant" || a == "cafe" || a == "fast_food" -> Category("🍽️", "Lokal", "Lokalbesuch", 4)
+            tour == "hotel" || tour == "hostel" || tour == "guest_house" -> Cats.get("hotel")
+            a == "hospital" -> Cats.get("spital")
+            t["railway"] == "station" || g.contains("train_station") -> Cats.get("bahnhof")
+            a == "cinema" || a == "theatre" || a == "events_venue" -> Cats.get("theater")
+            l == "fitness_centre" -> Cats.get("fitness")
+            s == "massage" || massage != null || s == "tattoo" || s == "beauty" -> Cats.get("massage")
+            a == "restaurant" || a == "cafe" || a == "fast_food" -> Cats.get("lokal")
             else -> null
         }
     }

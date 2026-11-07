@@ -28,6 +28,28 @@ object Glass {
     val GREEN = 0xFF8DF5A6.toInt()
     val GREY = 0xFFC9CBD6.toInt()
     val RED = 0xFFFF9C8F.toInt()
+    val ORANGE = 0xFFFFC46B.toInt()
+
+    /** LED-Farben im Popup: grün offen, rot geschlossen, weiß unklar */
+    val LED_GREEN = 0xFF4CD964.toInt()
+    val LED_RED = 0xFFFF453A.toInt()
+    val LED_WHITE = 0xFFFFFFFF.toInt()
+
+    /** Runde LED; weiß bekommt einen feinen grauen Rand */
+    fun dot(ctx: Context, color: Int, sizeDp: Int = 12) = android.view.View(ctx).apply {
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color)
+            if (color == LED_WHITE) setStroke(ctx.dp(1).coerceAtLeast(1), 0xFF8A8C96.toInt())
+        }
+        layoutParams = android.widget.LinearLayout.LayoutParams(ctx.dp(sizeDp), ctx.dp(sizeDp))
+    }
+
+    fun ledColor(s: OpenState) = when (s) {
+        OpenState.OPEN -> LED_GREEN
+        OpenState.CLOSED -> LED_RED
+        OpenState.UNKNOWN -> LED_WHITE
+    }
 
     /** Glasfläche: Füllung + Glanzverlauf + heller Rand */
     fun surface(ctx: Context, radiusDp: Int, fill: Int = 0x1FFFFFFF, stroke: Int = 0xB3FFFFFF.toInt()): Drawable =

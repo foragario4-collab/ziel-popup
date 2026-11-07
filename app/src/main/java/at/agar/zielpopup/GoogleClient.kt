@@ -255,6 +255,7 @@ object GoogleClient {
             has("hotel", "lodging", "hostel", "motel", "bed_and_breakfast", "guest_house", "inn") ->
                 tags["tourism"] = "hotel"
             has("hospital") -> tags["amenity"] = "hospital"
+            has("train_station") -> tags["railway"] = "station"
             has("movie_theater") -> tags["amenity"] = "cinema"
             has("massage", "spa", "sauna", "wellness_center") -> tags["shop"] = "massage"
             has("gym", "fitness_center", "yoga_studio") -> tags["leisure"] = "fitness_centre"

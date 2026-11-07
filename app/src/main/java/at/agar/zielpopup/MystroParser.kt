@@ -8,6 +8,17 @@ object MystroParser {
         """(?i)(gasse|straße|strasse|str\.|platz|weg|allee|ring|gürtel|guertel|lände|laende|zeile|markt|kai|promenade|steig|brücke|hof)"""
     )
 
+    /**
+     * Ungefähre Minuten bis zur Ankunft am Ziel: Anfahrt zur Abholung + Fahrt zum Ziel
+     * (Mystro zeigt beide als "x Min. • y km"). null, wenn nichts erkannt.
+     */
+    fun findEtaMinutes(texts: List<String>): Int? {
+        val mins = texts.map { it.trim() }.filter { tripInfo.matches(it) }
+            .mapNotNull { Regex("""^\d+""").find(it)?.value?.toIntOrNull() }
+        if (mins.isEmpty()) return null
+        return mins.takeLast(2).sum().takeIf { it in 1..240 }
+    }
+
     fun findDestination(texts: List<String>): String? {
         val t = texts.map { it.trim() }.filter { it.isNotEmpty() }
         // 1. Mystro zeigt: Abholung (Min • km, Adresse), Ziel (Min • km, Adresse) -> Text nach dem LETZTEN "Min • km"

@@ -12,8 +12,8 @@ object History {
     private const val MAX = 15
 
     fun add(ctx: Context, input: String, result: AnalysisResult, source: String) {
-        if (result.title.startsWith("❓") || result.title.startsWith("⚠️")) return
-        val kind = result.lines.firstOrNull { it.style == 1 }?.text ?: ""
+        if (result.title.startsWith("❓") || result.title.startsWith("⚠️") || result.headline?.startsWith("❓") == true) return
+        val kind = result.headline ?: ""
         val item = HistoryItem(System.currentTimeMillis(), input, result.title.removePrefix("📍 "), kind, source)
         val list = ArrayList(all(ctx).filterNot { it.address == item.address })
         list.add(0, item)

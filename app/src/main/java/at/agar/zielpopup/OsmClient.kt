@@ -221,7 +221,8 @@ object OsmClient {
         "amenity:theatre", "amenity:events_venue", "amenity:arts_centre", "amenity:community_centre",
         "tourism:hotel", "tourism:hostel", "tourism:guest_house",
         "shop:erotic", "shop:massage", "shop:tattoo", "shop:beauty",
-        "leisure:fitness_centre", "leisure:adult_gaming_centre", "leisure:dance"
+        "leisure:fitness_centre", "leisure:adult_gaming_centre", "leisure:dance",
+        "leisure:sauna", "shop:bookmaker", "amenity:gambling", "railway:station"
     )
 
     /** Alle interessanten Orte im Umkreis – eine einzige, schnelle Anfrage */
@@ -295,7 +296,7 @@ object OsmClient {
 
     // ---------- Ersatzsuche über Nominatim (wenn Overpass nicht antwortet) ----------
     private val FALLBACK_TERMS = listOf(
-        "bar", "nightclub", "brothel", "Laufhaus", "place of worship", "hotel", "Studio"
+        "bar", "nightclub", "brothel", "Laufhaus", "Saunaclub", "place of worship", "Moschee", "hotel", "Studio"
     )
 
     /** Das Objekt direkt an diesem Punkt (z. B. eine Synagoge im Gebäude) */
