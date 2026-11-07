@@ -319,8 +319,7 @@ class GlassSegmented(
     initial: Int,
     private val onSelect: (Int) -> Unit
 ) : LinearLayout(ctx) {
-    var selected = initial
-        private set
+    private var current = initial
     private var pos = initial.toFloat()
     private var stretch = 0f
     private var posAnim: ValueAnimator? = null
@@ -359,8 +358,8 @@ class GlassSegmented(
     }
 
     fun select(i: Int) {
-        if (i == selected) return
-        selected = i
+        if (i == current) return
+        current = i
         posAnim?.cancel()
         posAnim = ValueAnimator.ofFloat(pos, i.toFloat()).apply {
             duration = 520
