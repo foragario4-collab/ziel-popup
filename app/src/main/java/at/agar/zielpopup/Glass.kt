@@ -77,10 +77,13 @@ object Glass {
         intArrayOf(0xFF0B1026.toInt(), 0xFF2A1B5E.toInt(), 0xFF0E4A5C.toInt())
     )
 
+    /** Weiche Farbkugel: Farbverlauf zur Mitte hin, läuft am Rand unsichtbar aus (keine harten Kanten) */
     fun blob(ctx: Context, color: Int, sizeDp: Int) = android.view.View(ctx).apply {
         background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(color)
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            gradientRadius = ctx.dp(sizeDp) / 2f
+            colors = intArrayOf(color, color and 0x00FFFFFF or 0x40000000, color and 0x00FFFFFF)
         }
         layoutParams = android.widget.FrameLayout.LayoutParams(ctx.dp(sizeDp), ctx.dp(sizeDp))
     }

@@ -458,10 +458,6 @@ object OsmClient {
                 "❌ Test Robertgasse 2: ${e.message ?: ""}"
             }
         )
-        val testQuery = "[out:json][timeout:10];node(around:50,48.2085,16.3731)[\"amenity\"];out 1;"
-        for (s in OVERPASS_SERVERS) {
-            out.add(check("Umgebung: " + URL(s).host) { runOverpass(s, testQuery) })
-        }
         return out
     }
 

@@ -47,21 +47,14 @@ class MainActivity : Activity() {
         // Hintergrund: Farbverlauf + weich verschwommene Farbkugeln (der "Liquid"-Effekt)
         val frame = android.widget.FrameLayout(this).apply { background = Glass.backdrop() }
         val blobs = listOf(
-            Triple(0x996D5BFF.toInt(), 320, Pair(-80, 40)),
-            Triple(0x8800C2FF.toInt(), 280, Pair(180, 360)),
-            Triple(0x77FF5FA2.toInt(), 260, Pair(-40, 640))
+            Triple(0xCC6D5BFF.toInt(), 460, Pair(-140, -40)),
+            Triple(0xAA00C2FF.toInt(), 420, Pair(120, 320)),
+            Triple(0x99FF5FA2.toInt(), 400, Pair(-120, 640))
         )
         for ((color, size, pos) in blobs) {
             val b = Glass.blob(this, color, size)
             b.translationX = dp(pos.first).toFloat()
             b.translationY = dp(pos.second).toFloat()
-            if (android.os.Build.VERSION.SDK_INT >= 31) {
-                b.setRenderEffect(
-                    android.graphics.RenderEffect.createBlurEffect(160f, 160f, android.graphics.Shader.TileMode.DECAL)
-                )
-            } else {
-                b.alpha = 0.45f
-            }
             frame.addView(b)
         }
 
