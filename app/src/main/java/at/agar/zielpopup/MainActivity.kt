@@ -424,6 +424,66 @@ class MainActivity : Activity() {
         settingsBox.addView(row("Was hat der Leser gesehen?", "Zuletzt aus Mystro gelesener Text", chevron()) {
             readerDialog()
         })
+        settingsBox.addView(separator())
+        settingsBox.addView(row("Testfahrt simulieren", "Echte Mystro-Anfragen nachspielen – ohne online zu sein", chevron()) {
+            simulateDialog()
+        })
+    }
+
+    // ---------------------------------------------------------------- Testfahrten
+
+    /** Texte genau so, wie Mystro sie bei echten Fahrten anzeigt (aus deinen Screenshots) */
+    private val samples: List<Pair<String, List<String>>> = listOf(
+        "REDROOF → Vienna Airport Terminal 1" to listOf(
+            "Offline bleiben wenn die Fahrt endet", "UberX", "Carrie T", "4,45", "€-", "gesamtpreis",
+            "€-", "€/Std.", "€-", "€/km", "1 Min. • 0,7 km", "REDROOF Vienna, Ob. Donaustraße 61, Wien",
+            "Vienna Airport Terminal 1, Schwechat", "Karte", "Online gehen", "1794222222543"
+        ),
+        "Lilienbrunngasse 13 → Vienna Airport" to listOf(
+            "Offline bleiben wenn die Fahrt endet", "UberX", "Hirokazu K", "5,00", "€-", "gesamtpreis",
+            "€-", "€/Std.", "€-", "€/km", "1 Min.", "•", "0,3 km", "Lilienbrunngasse 13, Wien",
+            "Vienna Airport, Schwechat", "Karte", "Online gehen"
+        ),
+        "Orpheum → Kellerberggasse 70" to listOf(
+            "Karte zurücksetzen", "UberX", "Günter G", "4,73", "€-", "gesamtpreis", "€-", "€/Std.",
+            "€-", "€/km", "2 Min. • 1,3 km", "Orpheum Wien GmbH, Orpheum, Steigenteschgasse 94B, Wien",
+            "22 Min. • 24,4 km", "Kellerberggasse 70, Wien", "Karte", "Pausieren"
+        )
+    )
+
+    private fun simulateDialog() {
+        val names = samples.map { it.first }.toTypedArray()
+        dialog()
+            .setTitle("Testfahrt simulieren")
+            .setItems(names) { _, which -> simulate(samples[which].second) }
+            .setNegativeButton("Abbrechen", null)
+            .show().glassy()
+    }
+
+    /** Läuft exakt wie bei einer echten Fahrt: Ziel erkennen -> suchen -> Popup */
+    private fun simulate(texts: List<String>) {
+        val dest = MystroParser.findDestination(texts)
+        if (dest == null) {
+            dialog().setTitle("Testfahrt").setMessage("Kein Ziel erkannt.").setPositiveButton("OK", null).show().glassy()
+            return
+        }
+        val eta = MystroParser.findEtaMinutes(texts)
+        OverlayPopup.show(this, AnalysisResult("🔎 Ziel: $dest"))
+        val key = Prefs.activeKey(this)
+        val radius = Prefs.radius(this)
+        worker.execute {
+            val res = try {
+                Analyzer.analyze(dest, key, radius).copy(etaMin = eta)
+            } catch (e: Exception) {
+                AnalysisResult("⚠️ Fehler bei der Suche", notes = listOf(e.message ?: ""))
+            }
+            History.add(this, dest, res, "Test")
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                OverlayPopup.show(this, res)
+                refreshHistory()
+            }
+        }
     }
 
     // ---------------------------------------------------------------- Dialoge
