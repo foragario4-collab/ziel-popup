@@ -31,7 +31,7 @@ class MystroReaderService : AccessibilityService() {
         if (!isMystro(event.packageName) && event.eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
         // kurz warten, bis Mystro fertig gezeichnet hat
         handler.removeCallbacks(readRunnable)
-        handler.postDelayed(readRunnable, 700)
+        handler.postDelayed(readRunnable, 500)
     }
 
     override fun onInterrupt() {}
@@ -60,6 +60,7 @@ class MystroReaderService : AccessibilityService() {
         prefs.edit()
             .putString("last_screen", texts.joinToString("\n").take(4000))
             .putString("last_dest", dest ?: "(keine Adresse erkannt)")
+            .putLong("last_read_time", System.currentTimeMillis())
             .apply()
         if (dest == null) return
 

@@ -95,8 +95,18 @@ object Analyzer {
         val parsed = AddressParser.parse(input)
         if (parsed.street.isBlank()) return AnalysisResult("❓ Adresse nicht erkannt")
 
+        // 1. Ziel außerhalb Wiens (z. B. "Vienna Airport Terminal 1, Schwechat") -> freie Ortssuche
+        if (isOutsideVienna(input)) {
+            placeMode(input, radius)?.let { return it }
+        }
+
         // Ungenaue Eingabe in den offiziellen Straßennamen umwandeln ("karl gunsam" -> "Karl-Gunsam-Gasse")
         val official = try { OsmClient.wienResolveStreet(parsed.street) } catch (e: Exception) { null }
+
+        // 2. Keine Wiener Straße und kein Straßenwort (z. B. "Hauptbahnhof", "Ernst-Happel-Stadion") -> Ortssuche
+        if (official == null && !STREET_WORD.containsMatchIn(parsed.street)) {
+            placeMode(input, radius)?.let { return it }
+        }
         val addr = if (official != null) parsed.copy(street = official) else parsed
         val shown = "📍 " + addr.street + (addr.rawNumber?.let { " $it" } ?: "") +
                 (addr.postcode?.let { ", $it Wien" } ?: ", Wien")
@@ -179,6 +189,59 @@ object Analyzer {
             .filter { (it.dist ?: 0) <= radius }
 
         return AnalysisResult("", headline, exact, nearby, streetMode = false, radius = radius, notes = notes)
+    }
+
+    // ---------- Ort statt Adresse (Flughafen, Bahnhof, Ziel außerhalb Wiens) ----------
+    private val STREET_WORD = Regex(
+        """(?i)(gasse|straße|strasse|str\.?$|platz|weg|allee|ring|gürtel|lände|zeile|markt|kai|promenade|steig|brücke|hof|berg|graben|bastei)"""
+    )
+
+    private fun isOutsideVienna(input: String): Boolean {
+        val parts = input.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.size < 2) return false
+        val locality = parts.last().lowercase()
+        return !locality.contains("wien") && !locality.contains("vienna") &&
+                !Regex("""^1[0-2]\d0""").containsMatchIn(locality)
+    }
+
+    private fun placeMode(input: String, radius: Int): AnalysisResult? {
+        val hit = try { OsmClient.searchPlace(input) } catch (e: Exception) { null } ?: return null
+        val lat = hit.lat
+        val lon = hit.lon
+        val fetchR = fetchRadius(radius)
+        val notes = ArrayList<String>()
+        val places: List<OsmPlace> = run {
+            val k = key
+            if (k != null) {
+                try {
+                    return@run GoogleClient.nearby(k, lat, lon, fetchR.toDouble())
+                } catch (e: Exception) {
+                    notes.add("⚠️ ${e.message}")
+                }
+            }
+            try {
+                OsmClient.fastNear(lat, lon, fetchR)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+        val now = Calendar.getInstance()
+        val real = Kinds.isRealPlace(hit.tags)
+        val headline = when {
+            real -> Kinds.describe(hit.tags)
+            hit.tags["addr:housenumber"] != null -> "🏠 Wohnadresse"
+            else -> "📍 " + (hit.tags["name"] ?: input)
+        }
+        val exact = if (real) {
+            val (emoji, label) = Kinds.of(hit.tags) ?: ("📍" to "Ort")
+            val st = stateOf(hit, now)
+            listOf(PlaceRow(null, "$emoji $label", hit.tags["name"] ?: label, null, null, st, infoText(hit, st)))
+        } else emptyList()
+        val nearby = places
+            .filter { it.id != hit.id && it.tags["name"] != hit.tags["name"] }
+            .mapNotNull { p -> toRow(p, now, distanceM(lat, lon, p.lat, p.lon)) }
+            .filter { (it.dist ?: 0) <= radius }
+        return AnalysisResult("📍 $input", headline, exact, nearby, streetMode = false, radius = radius, notes = notes)
     }
 
     // ---------- Ohne Hausnummer: ganze Gasse ----------

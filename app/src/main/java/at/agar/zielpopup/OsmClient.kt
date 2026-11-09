@@ -225,6 +225,31 @@ object OsmClient {
         "leisure:sauna", "shop:bookmaker", "amenity:gambling", "railway:station"
     )
 
+    /**
+     * Freie Suche nach einem Ort oder einer Adresse – auch außerhalb Wiens
+     * (z. B. "Vienna Airport Terminal 1, Schwechat"). Bevorzugt Treffer rund um Wien.
+     */
+    fun searchPlace(query: String): OsmPlace? {
+        val url = "https://photon.komoot.io/api/?limit=1&lang=de&lat=48.2082&lon=16.3738&q=" +
+                URLEncoder.encode(query, "UTF-8")
+        val json = JSONObject(read(open(url)))
+        val f = json.optJSONArray("features")?.optJSONObject(0) ?: return null
+        val pr = f.optJSONObject("properties") ?: return null
+        val c = f.optJSONObject("geometry")?.optJSONArray("coordinates") ?: return null
+        val type = when (pr.optString("osm_type")) {
+            "N" -> "node"; "W" -> "way"; "R" -> "relation"; else -> "node"
+        }
+        val tags = HashMap<String, String>()
+        val k = pr.optString("osm_key")
+        val v = pr.optString("osm_value")
+        if (k.isNotEmpty() && v.isNotEmpty()) tags[k] = v
+        pr.optString("name").takeIf { it.isNotEmpty() }?.let { tags["name"] = it }
+        pr.optString("street").takeIf { it.isNotEmpty() }?.let { tags["addr:street"] = it }
+        pr.optString("housenumber").takeIf { it.isNotEmpty() }?.let { tags["addr:housenumber"] = it }
+        pr.optString("city").takeIf { it.isNotEmpty() }?.let { tags["addr:city"] = it }
+        return OsmPlace(type + "/" + pr.optLong("osm_id"), c.getDouble(1), c.getDouble(0), tags)
+    }
+
     /** Alle interessanten Orte im Umkreis – eine einzige, schnelle Anfrage */
     fun fastNear(lat: Double, lon: Double, radiusM: Int): List<OsmPlace> {
         val sb = StringBuilder("https://photon.komoot.io/reverse?lat=$lat&lon=$lon&limit=50&lang=de")
