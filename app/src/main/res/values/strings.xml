@@ -1,4 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="a11y_description">Liest die Zieladresse aus Mystro und zeigt per Popup, was am Ziel ist (Lokal, Bar, Club …). Es werden nur Bildschirme der Mystro-App gelesen.</string>
+    <string name="app_name">Gebetszeiten</string>
+    <string name="widget_medium_desc">Gebetszeiten des Tages – das nächste Gebet immer in der Mitte</string>
+    <string name="widget_small_desc">Nächstes Gebet mit Countdown</string>
 </resources>
