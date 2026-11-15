@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "Gebetszeiten"
+rootProject.name = "ziel-popup"
 include(":app")

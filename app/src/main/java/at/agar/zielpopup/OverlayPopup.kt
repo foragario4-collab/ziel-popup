@@ -28,12 +28,24 @@ object OverlayPopup {
     private val autoHide = Runnable { appCtx?.let { hide(it) } }
 
     @SuppressLint("ClickableViewAccessibility")
-    fun show(context: Context, result: AnalysisResult) {
+    private var showMs = SHOW_MS
+
+    /** durationMs: wie lange das Popup stehen bleibt (kurze Hinweise z. B. 3 Sekunden) */
+    fun show(context: Context, result: AnalysisResult, durationMs: Long = SHOW_MS) {
+        showMs = durationMs
         val ctx = context.applicationContext
         appCtx = ctx
-        if (!Settings.canDrawOverlays(ctx)) return
-        removeNow(ctx)
-        val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        // Kommt der Aufruf vom Mystro-Leser (Bedienungshilfe), nutzen wir dessen eigenes Overlay:
+        // das braucht keine Popup-Berechtigung und wird von Android nie im Hintergrund blockiert.
+        val fromA11y = context is android.accessibilityservice.AccessibilityService
+        if (!fromA11y && !Settings.canDrawOverlays(ctx)) {
+            status(ctx, "Popup-Berechtigung fehlt")
+            return
+        }
+        removeNow()
+        val wm = (if (fromA11y) context else ctx).getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val windowType = if (fromA11y) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+                         else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
 
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -121,7 +133,7 @@ object OverlayPopup {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
@@ -136,9 +148,12 @@ object OverlayPopup {
         try {
             wm.addView(box, params)
         } catch (e: Exception) {
+            status(ctx, "Popup-Fehler: ${e.javaClass.simpleName} ${e.message ?: ""}")
             return
         }
         current = box
+        currentWm = wm
+        status(ctx, (if (fromA11y) "Popup vom Leser angezeigt" else "Popup angezeigt") + ": " + result.title)
 
         // federnd von oben hereingleiten (wie eine iPhone-Mitteilung)
         box.pivotX = ctx.resources.displayMetrics.widthPixels / 2f
@@ -158,9 +173,18 @@ object OverlayPopup {
         if (v is android.view.ViewGroup) for (i in 0 until v.childCount) softShadows(v.getChildAt(i))
     }
 
+    private var currentWm: WindowManager? = null
+
+    /** Für „Was hat der Leser gesehen?“: ob das letzte Popup wirklich erschienen ist */
+    private fun status(ctx: Context, msg: String) {
+        val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.GERMAN).format(java.util.Date())
+        ctx.getSharedPreferences("einstellungen", Context.MODE_PRIVATE).edit()
+            .putString("popup_status", "$t – $msg").apply()
+    }
+
     private fun restartTimer() {
         handler.removeCallbacks(autoHide)
-        handler.postDelayed(autoHide, SHOW_MS)
+        handler.postDelayed(autoHide, showMs)
     }
 
     /** Mit Animation ausblenden */
@@ -168,7 +192,7 @@ object OverlayPopup {
         handler.removeCallbacks(autoHide)
         val v = current ?: return
         current = null
-        val wm = context.applicationContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val wm = currentWm ?: (context.applicationContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager)
         v.animate().alpha(0f).translationY(v.translationY - v.context.dp(36))
             .scaleX(0.95f).scaleY(0.95f).setDuration(220)
             .setInterpolator(AccelerateInterpolator())
@@ -177,12 +201,12 @@ object OverlayPopup {
     }
 
     /** Sofort entfernen (wenn gleich ein neues Popup kommt) */
-    private fun removeNow(context: Context) {
+    private fun removeNow() {
         handler.removeCallbacks(autoHide)
         val v = current ?: return
         current = null
         try {
-            (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(v)
+            currentWm?.removeView(v)
         } catch (_: Exception) {
         }
     }
