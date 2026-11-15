@@ -52,7 +52,7 @@ class MystroReaderService : AccessibilityService() {
                 lastLog = now
                 prefs().edit()
                     .putLong("evt_time", now)
-                    .putString("evt_apps", seenApps.reversed().joinToString("\n"))
+                    .putString("evt_apps", seenApps.toList().asReversed().joinToString("\n"))
                     .apply()
             }
         }

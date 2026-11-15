@@ -11,8 +11,8 @@ android {
         applicationId = "at.agar.zielpopup"
         minSdk = 26
         targetSdk = 34
-        versionCode = 27
-        versionName = "2.7"
+        versionCode = 28
+        versionName = "2.7.1"
     }
 
     // Fester Schlüssel, damit neue Versionen einfach drüber installiert werden können

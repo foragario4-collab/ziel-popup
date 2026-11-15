@@ -27,10 +27,10 @@ object OverlayPopup {
     private var appCtx: Context? = null
     private val autoHide = Runnable { appCtx?.let { hide(it) } }
 
-    @SuppressLint("ClickableViewAccessibility")
     private var showMs = SHOW_MS
 
     /** durationMs: wie lange das Popup stehen bleibt (kurze Hinweise z. B. 3 Sekunden) */
+    @SuppressLint("ClickableViewAccessibility")
     fun show(context: Context, result: AnalysisResult, durationMs: Long = SHOW_MS) {
         showMs = durationMs
         val ctx = context.applicationContext
@@ -44,8 +44,8 @@ object OverlayPopup {
         }
         removeNow()
         val wm = (if (fromA11y) context else ctx).getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val windowType = if (fromA11y) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-                         else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        val windowType: Int =
+            if (fromA11y) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
 
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL

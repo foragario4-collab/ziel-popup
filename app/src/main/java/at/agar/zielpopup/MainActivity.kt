@@ -566,8 +566,10 @@ class MainActivity : Activity() {
         val p = Prefs.get(this)
         val t = p.getLong("last_read_time", 0L)
         val zeit = if (t == 0L) "noch nie" else java.text.SimpleDateFormat("dd.MM. HH:mm:ss", java.util.Locale.GERMAN).format(java.util.Date(t))
-        fun fmt(x: Long) = if (x == 0L) "noch nie" else
-            java.text.SimpleDateFormat("dd.MM. HH:mm:ss", java.util.Locale.GERMAN).format(java.util.Date(x))
+        val fmt = { x: Long ->
+            if (x == 0L) "noch nie"
+            else java.text.SimpleDateFormat("dd.MM. HH:mm:ss", java.util.Locale.GERMAN).format(java.util.Date(x))
+        }
         val diag = "Leser gestartet: ${fmt(p.getLong("svc_connected", 0L))}\n" +
                 "Letztes Ereignis: ${fmt(p.getLong("evt_time", 0L))}\n" +
                 "Hinweis: ${p.getString("last_problem", null) ?: "–"}\n" +
