@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val buildNumber: Int = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
+
 android {
     namespace = "at.agar.zielpopup"
     compileSdk = 34
@@ -11,8 +13,9 @@ android {
         applicationId = "at.agar.zielpopup"
         minSdk = 26
         targetSdk = 34
-        versionCode = 29
-        versionName = "2.7.2"
+        // Build-Nummer kommt von GitHub (-PbuildNumber=…) – daran erkennt die App ihre Updates
+        versionCode = 1000 + buildNumber
+        versionName = "3.1"
     }
 
     // Fester Schlüssel, damit neue Versionen einfach drüber installiert werden können

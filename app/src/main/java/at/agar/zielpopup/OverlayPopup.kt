@@ -22,16 +22,34 @@ import android.widget.TextView
  */
 object OverlayPopup {
     private const val SHOW_MS = 25000L
+    private const val OUTSIDE_GRACE_MS = 4000L
     private var current: View? = null
     private val handler = Handler(Looper.getMainLooper())
     private var appCtx: Context? = null
-    private val autoHide = Runnable { appCtx?.let { hide(it) } }
+    private val autoHide = Runnable { appCtx?.let { hide(it, "Zeit abgelaufen") } }
+    private var shownAt = 0L
+    private var shownTitle = ""
+
+    /** Ist gerade ein Popup sichtbar? */
+    fun isShowing(): Boolean = current != null
 
     private var showMs = SHOW_MS
 
     /** durationMs: wie lange das Popup stehen bleibt (kurze Hinweise z. B. 3 Sekunden) */
-    @SuppressLint("ClickableViewAccessibility")
     fun show(context: Context, result: AnalysisResult, durationMs: Long = SHOW_MS) {
+        try {
+            showInner(context, result, durationMs)
+        } catch (e: Throwable) {
+            // nie abstürzen – sonst schaltet Android den Mystro-Leser ab
+            try {
+                EventLog.add(context.applicationContext, "Popup-FEHLER: ${e.javaClass.simpleName} ${e.message ?: ""}")
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showInner(context: Context, result: AnalysisResult, durationMs: Long) {
         showMs = durationMs
         val ctx = context.applicationContext
         appCtx = ctx
@@ -40,6 +58,7 @@ object OverlayPopup {
         val fromA11y = context is android.accessibilityservice.AccessibilityService
         if (!fromA11y && !Settings.canDrawOverlays(ctx)) {
             status(ctx, "Popup-Berechtigung fehlt")
+            EventLog.add(ctx, "Popup nicht möglich: Berechtigung fehlt")
             return
         }
         removeNow()
@@ -71,7 +90,7 @@ object OverlayPopup {
                 LiquidGlassDrawable(ctx.dp(18).toFloat(), 0x26FFFFFF, ctx.dp(1).toFloat() * 1.5f), null
             )
             contentDescription = "Schließen"
-            setOnClickListener { hide(ctx) }
+            setOnClickListener { hide(ctx, "✕ gedrückt") }
             Glass.pressEffect(this, 0.88f)
         }, LinearLayout.LayoutParams(ctx.dp(36), ctx.dp(36)).apply { leftMargin = ctx.dp(10) })
         box.addView(header)
@@ -98,7 +117,7 @@ object OverlayPopup {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     dragging = false
                     if (box.translationY < -ctx.dp(50)) {
-                        hide(ctx)
+                        hide(ctx, "weggewischt")
                     } else {
                         box.animate().translationY(0f).alpha(1f).setDuration(420)
                             .setInterpolator(OvershootInterpolator(2f)).start()
@@ -124,9 +143,13 @@ object OverlayPopup {
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
-        // Tippen außerhalb -> schließen
+        // Tippen außerhalb -> schließen, aber erst nach 4 Sekunden:
+        // sonst schließt das Antippen von Uber/Mystro (z. B. Annehmen) das Popup sofort wieder.
         box.setOnTouchListener { _, ev ->
-            if (ev.action == MotionEvent.ACTION_OUTSIDE) hide(ctx)
+            if (ev.action == MotionEvent.ACTION_OUTSIDE &&
+                System.currentTimeMillis() - shownAt > OUTSIDE_GRACE_MS) {
+                hide(ctx, "Tippen daneben")
+            }
             false
         }
 
@@ -149,11 +172,15 @@ object OverlayPopup {
             wm.addView(box, params)
         } catch (e: Exception) {
             status(ctx, "Popup-Fehler: ${e.javaClass.simpleName} ${e.message ?: ""}")
+            EventLog.add(ctx, "Popup-FEHLER: ${e.javaClass.simpleName} ${e.message ?: ""}")
             return
         }
         current = box
         currentWm = wm
+        shownAt = System.currentTimeMillis()
+        shownTitle = result.headline ?: result.title
         status(ctx, (if (fromA11y) "Popup vom Leser angezeigt" else "Popup angezeigt") + ": " + result.title)
+        EventLog.add(ctx, "Popup gezeigt: ${result.headline ?: result.title}")
 
         // federnd von oben hereingleiten (wie eine iPhone-Mitteilung)
         box.pivotX = ctx.resources.displayMetrics.widthPixels / 2f
@@ -188,10 +215,13 @@ object OverlayPopup {
     }
 
     /** Mit Animation ausblenden */
-    fun hide(context: Context) {
+    fun hide(context: Context, reason: String = "geschlossen") {
         handler.removeCallbacks(autoHide)
         val v = current ?: return
         current = null
+        val secs = (System.currentTimeMillis() - shownAt) / 1000.0
+        EventLog.add(context.applicationContext,
+            "Popup zu ($reason) nach ${String.format(java.util.Locale.GERMAN, "%.1f", secs)} s: $shownTitle")
         val wm = currentWm ?: (context.applicationContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager)
         v.animate().alpha(0f).translationY(v.translationY - v.context.dp(36))
             .scaleX(0.95f).scaleY(0.95f).setDuration(220)

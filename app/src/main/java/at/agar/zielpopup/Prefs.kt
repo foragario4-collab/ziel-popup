@@ -34,7 +34,7 @@ object Prefs {
     fun showUnknown(ctx: Context): Boolean = get(ctx).getBoolean("show_unknown", true)
     fun setShowUnknown(ctx: Context, on: Boolean) = get(ctx).edit().putBoolean("show_unknown", on).apply()
 
-    const val RADIUS_MIN = 10
+    const val RADIUS_MIN = 0   // 0 = kein Umkreis, nur die Adresse selbst
     const val RADIUS_MAX = 100
     fun radius(ctx: Context): Int = get(ctx).getInt("radius", 25).coerceIn(RADIUS_MIN, RADIUS_MAX)
     fun setRadius(ctx: Context, m: Int) = get(ctx).edit().putInt("radius", m.coerceIn(RADIUS_MIN, RADIUS_MAX)).apply()

@@ -183,7 +183,8 @@ object Analyzer {
             PlaceRow(null, "$emoji $label", p.tags["name"] ?: label, null, null, st, infoText(p, st))
         }
 
-        val nearby = places
+        // Umkreis 0 = nur die Adresse selbst, keine Umgebung
+        val nearby = if (radius <= 0) emptyList() else places
             .filter { it.id !in exactIds }
             .mapNotNull { p -> toRow(p, now, distanceM(lat, lon, p.lat, p.lon)) }
             .filter { (it.dist ?: 0) <= radius }
@@ -240,7 +241,7 @@ object Analyzer {
         val nearby = places
             .filter { it.id != hit.id && it.tags["name"] != hit.tags["name"] }
             .mapNotNull { p -> toRow(p, now, distanceM(lat, lon, p.lat, p.lon)) }
-            .filter { (it.dist ?: 0) <= radius }
+            .filter { radius > 0 && (it.dist ?: 0) <= radius }
         return AnalysisResult("📍 $input", headline, exact, nearby, streetMode = false, radius = radius, notes = notes)
     }
 

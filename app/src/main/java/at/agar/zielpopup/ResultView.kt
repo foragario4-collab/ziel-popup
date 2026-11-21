@@ -68,6 +68,12 @@ object ResultView {
             return list
         }
 
+        // Umkreis 0: nur die Adresse selbst – kein Umgebungs-Abschnitt
+        if (!r.streetMode && r.radius <= 0) {
+            for (n in r.notes) list.addView(small(ctx, n, 13f, Glass.TEXT_SOFT, 8))
+            return list
+        }
+
         val (shown, hidden) = visible(ctx, r)
 
         // kräftiger Strich zwischen Kopf und Liste

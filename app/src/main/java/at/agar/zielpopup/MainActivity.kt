@@ -150,6 +150,7 @@ class MainActivity : Activity() {
         refreshStatus()
         refreshHistory()
         refreshSettings()
+        if (UpdateManager.dueForAutoCheck(this)) checkUpdates(manual = false)
     }
 
     override fun onDestroy() {
@@ -206,7 +207,13 @@ class MainActivity : Activity() {
     private fun refreshStatus() {
         statusBox.removeAllViews()
         val mOn = mystroEnabled()
-        statusRow("Mystro-Leser", if (mOn) "An" else "Aus", if (mOn) Glass.GREEN else Glass.ORANGE) { openAccessibility() }
+        val running = MystroReaderService.instance != null
+        val (mText, mColor) = when {
+            mOn && running -> "Läuft" to Glass.GREEN
+            mOn -> "Hängt – aus & ein schalten" to Glass.ORANGE
+            else -> "Aus" to Glass.ORANGE
+        }
+        statusRow("Mystro-Leser", mText, mColor) { openAccessibility() }
         statusBox.addView(separator())
         val oOk = overlayOk()
         statusRow("Popup", if (oOk) "Erlaubt" else "Erlauben", if (oOk) Glass.GREEN else Glass.ORANGE) { openOverlay() }
@@ -215,6 +222,10 @@ class MainActivity : Activity() {
             Prefs.rawKey(this) == null -> statusRow("Google", "Nur OpenStreetMap", Glass.GREY, null)
             Prefs.googleOn(this) -> statusRow("Google", "An", Glass.GREEN, null)
             else -> statusRow("Google", "Pausiert", Glass.ORANGE, null)
+        }
+        UpdateManager.knownUpdate(this)?.let { upd ->
+            statusBox.addView(separator())
+            statusRow("Update", "Build ${upd.build} verfügbar", Glass.GREEN) { updateDialog(upd) }
         }
     }
 
@@ -282,7 +293,8 @@ class MainActivity : Activity() {
         displayBox.addView(separator())
 
         // Umkreis
-        val radiusLabel = Glass.label(this, "${Prefs.radius(this)} m", 16f, Glass.TEXT)
+        fun radiusText(m: Int) = if (m <= 0) "Aus – nur Adresse" else "$m m"
+        val radiusLabel = Glass.label(this, radiusText(Prefs.radius(this)), 16f, Glass.TEXT)
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -307,7 +319,7 @@ class MainActivity : Activity() {
             setPadding(dp(4), dp(12), dp(4), dp(12))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
-                    radiusLabel.text = "${Prefs.RADIUS_MIN + p * step} m"
+                    radiusLabel.text = radiusText(Prefs.RADIUS_MIN + p * step)
                     if (fromUser) sb?.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
                 override fun onStartTrackingTouch(sb: SeekBar?) {}
@@ -316,7 +328,7 @@ class MainActivity : Activity() {
                 }
             })
         }, lp(0))
-        displayBox.addView(Glass.label(this, "Gilt ab der nächsten Prüfung", 12.5f).apply { setPadding(0, 0, 0, dp(10)) })
+        displayBox.addView(Glass.label(this, "Ganz links = nur die Adresse, ohne Umgebung · gilt ab der nächsten Prüfung", 12.5f).apply { setPadding(0, 0, 0, dp(10)) })
         displayBox.addView(separator())
 
         // Kategorien, zwei Spalten
@@ -425,6 +437,16 @@ class MainActivity : Activity() {
             readerDialog()
         })
         settingsBox.addView(separator())
+        settingsBox.addView(row(
+            "App-Update",
+            "Installiert: Build ${UpdateManager.ownBuild(this).takeIf { it > 0 } ?: "–"} · neue Version von GitHub holen",
+            chevron()
+        ) { checkUpdates(manual = true) })
+        settingsBox.addView(separator())
+        settingsBox.addView(row("Schicht-Check", "Vor Schichtbeginn: prüft den echten Weg Leser → Popup", chevron()) {
+            shiftCheck()
+        })
+        settingsBox.addView(separator())
         settingsBox.addView(row("Testfahrt simulieren", "Echte Mystro-Anfragen nachspielen – ohne online zu sein", chevron()) {
             simulateDialog()
         })
@@ -450,6 +472,146 @@ class MainActivity : Activity() {
             "22 Min. • 24,4 km", "Kellerberggasse 70, Wien", "Karte", "Pausieren"
         )
     )
+
+    // ---------------------------------------------------------------- In-App-Update
+
+    /** Fragt GitHub nach der neuesten Version. manual = true zeigt auch "Alles aktuell" bzw. Fehler an. */
+    private fun checkUpdates(manual: Boolean) {
+        val waiting = if (manual) dialog().setTitle("App-Update").setMessage("Suche nach neuer Version …").show().glassy() else null
+        Thread {
+            var release: UpdateManager.Release? = null
+            var error: String? = null
+            try {
+                val rel = UpdateManager.fetchLatest()
+                release = rel
+                UpdateManager.rememberLatest(this, rel)
+            } catch (e: Exception) {
+                error = e.message ?: e.javaClass.simpleName
+            }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                waiting?.dismiss()
+                refreshStatus()
+                refreshSettings()
+                val r = release
+                val own = UpdateManager.ownBuild(this)
+                if (r != null && r.build > own) {
+                    if (manual) updateDialog(r)
+                } else if (manual && r != null) {
+                    dialog().setTitle("✅ App ist aktuell")
+                        .setMessage("Installiert: Build ${if (own > 0) own else "–"}\nNeueste Version auf GitHub: Build ${r.build}")
+                        .setPositiveButton("OK", null).show().glassy()
+                } else if (manual) {
+                    dialog().setTitle("Update-Prüfung fehlgeschlagen")
+                        .setMessage(error ?: "Unbekannter Fehler")
+                        .setPositiveButton("OK", null).show().glassy()
+                }
+            }
+        }.start()
+    }
+
+    private fun updateDialog(r: UpdateManager.Release) {
+        val own = UpdateManager.ownBuild(this)
+        val size = if (r.sizeBytes > 0) " (%.1f MB)".format(Locale.GERMAN, r.sizeBytes / 1_000_000.0) else ""
+        dialog()
+            .setTitle("⬆️ Update verfügbar")
+            .setMessage(
+                "Neu: Build ${r.build}$size\nInstalliert: Build ${if (own > 0) own else "–"}\n\n" +
+                        "Die App lädt das Update herunter, danach fragt Android einmal nach Bestätigung."
+            )
+            .setPositiveButton("Jetzt aktualisieren") { _, _ -> startUpdate(r) }
+            .setNegativeButton("Später", null)
+            .show().glassy()
+    }
+
+    private fun startUpdate(r: UpdateManager.Release) {
+        // Android muss der App einmalig erlauben, Updates zu installieren
+        if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+            dialog()
+                .setTitle("Einmalige Erlaubnis nötig")
+                .setMessage(
+                    "Damit sich die App selbst aktualisieren kann, bitte im nächsten Fenster " +
+                            "„Von dieser Quelle zulassen“ einschalten, zurückgehen und nochmal „Jetzt aktualisieren“ tippen."
+                )
+                .setPositiveButton("Zur Einstellung") { _, _ ->
+                    startActivity(
+                        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                    )
+                }
+                .setNegativeButton("Abbrechen", null)
+                .show().glassy()
+            return
+        }
+        val progress = dialog()
+            .setTitle("Update wird geladen")
+            .setMessage("0 %")
+            .setCancelable(false)
+            .show().glassy()
+        Thread {
+            try {
+                val apk = UpdateManager.download(this, r) { pct ->
+                    runOnUiThread { if (progress.isShowing) progress.setMessage("$pct %") }
+                }
+                runOnUiThread { if (progress.isShowing) progress.setMessage("Wird an Android übergeben …") }
+                UpdateManager.install(this, apk)
+                EventLog.add(this, "Update auf Build ${r.build} gestartet")
+                runOnUiThread { if (progress.isShowing) progress.dismiss() }
+            } catch (e: Exception) {
+                EventLog.add(this, "Update-Download fehlgeschlagen: ${e.message ?: e.javaClass.simpleName}")
+                runOnUiThread {
+                    if (progress.isShowing) progress.dismiss()
+                    if (!isFinishing) {
+                        dialog().setTitle("Update fehlgeschlagen")
+                            .setMessage(e.message ?: e.javaClass.simpleName)
+                            .setPositiveButton("OK", null).show().glassy()
+                    }
+                }
+            }
+        }.start()
+    }
+
+    /**
+     * Schicht-Check: schickt eine echte Mystro-Fahrt durch den LAUFENDEN Leser –
+     * derselbe Weg wie im Auto (Erkennen → Suchen → Popup über anderen Apps).
+     */
+    private fun shiftCheck() {
+        val svc = MystroReaderService.instance
+        if (!mystroEnabled() || svc == null) {
+            dialog()
+                .setTitle("❌ Mystro-Leser läuft nicht")
+                .setMessage(
+                    if (mystroEnabled())
+                        "Der Leser ist eingeschaltet, wurde von Android aber gestoppt.\n\n" +
+                                "Bitte in den Bedienungshilfen „Ziel-Popup: Mystro-Leser“ AUS- und wieder EINschalten, " +
+                                "dann den Schicht-Check wiederholen."
+                    else
+                        "Bitte in den Bedienungshilfen „Ziel-Popup: Mystro-Leser“ einschalten, " +
+                                "dann den Schicht-Check wiederholen."
+                )
+                .setPositiveButton("Zu den Bedienungshilfen") { _, _ -> openAccessibility() }
+                .setNegativeButton("Abbrechen", null)
+                .show().glassy()
+            return
+        }
+        dialog()
+            .setTitle("Schicht-Check")
+            .setMessage(
+                "Die App geht gleich in den Hintergrund. Nach etwa 2 Sekunden muss oben ein Popup mit " +
+                        "„Vienna Airport“ erscheinen – genau wie bei einer echten Fahrt.\n\n" +
+                        "✅ Popup erscheint → alles bereit für die Schicht.\n" +
+                        "❌ Kein Popup → App öffnen und unter „Was hat der Leser gesehen?“ ins Protokoll schauen."
+            )
+            .setPositiveButton("Starten") { _, _ ->
+                EventLog.add(this, "Schicht-Check gestartet")
+                moveTaskToBack(true)
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    MystroReaderService.instance?.selfTest(samples[1].second)
+                        ?: EventLog.add(applicationContext, "Schicht-Check: Leser nicht erreichbar")
+                }, 1500L)
+            }
+            .setNegativeButton("Abbrechen", null)
+            .show().glassy()
+    }
 
     private fun simulateDialog() {
         val names = samples.map { it.first }.toTypedArray()
@@ -574,6 +736,7 @@ class MainActivity : Activity() {
                 "Letztes Ereignis: ${fmt(p.getLong("evt_time", 0L))}\n" +
                 "Hinweis: ${p.getString("last_problem", null) ?: "–"}\n" +
                 "Letztes Popup: ${p.getString("popup_status", null) ?: "noch keins"}\n\n" +
+                "Protokoll (neueste oben):\n${EventLog.read(this)}\n\n" +
                 "Zuletzt gesehene Apps:\n${p.getString("evt_apps", null) ?: "keine"}\n\n"
         val msg = diag + "Zuletzt gelesen: $zeit\n\nErkannte Zieladresse:\n" + (p.getString("last_dest", null) ?: "noch nichts") +
                 "\n\nGelesener Text:\n" + (p.getString("last_screen", null) ?: "noch nichts gelesen")
@@ -698,7 +861,8 @@ class MainActivity : Activity() {
 
     @Suppress("DEPRECATION")
     private fun appVersion(): String = try {
-        packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+        (packageManager.getPackageInfo(packageName, 0).versionName ?: "?") +
+                UpdateManager.ownBuild(this).let { if (it > 0) " · Build $it" else "" }
     } catch (e: Exception) {
         "?"
     }
