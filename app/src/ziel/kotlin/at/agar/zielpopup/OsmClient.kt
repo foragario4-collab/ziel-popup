@@ -116,6 +116,27 @@ object OsmClient {
         return arr.optJSONObject(0)
     }
 
+    /**
+     * Postleitzahl(en) laut Stadt Wien. Mit Hausnummer genau eine,
+     * ohne Hausnummer alle Bezirke, durch die die Gasse läuft.
+     */
+    fun wienPostcodes(street: String, number: String?, postcode: String?): List<String> {
+        val arr = wienFeatures(if (number.isNullOrBlank()) street else "$street $number") ?: return emptyList()
+        fun pc(f: JSONObject?): String? = f?.optJSONObject("properties")?.let { p ->
+            p.optString("PostalCode").ifEmpty { p.optString("PLZ") }.takeIf { it.isNotBlank() }
+        }
+        if (!number.isNullOrBlank()) return listOfNotNull(pc(pick(arr, postcode)))
+        val want = norm(street)
+        val out = LinkedHashSet<String>()
+        for (i in 0 until arr.length()) {
+            val f = arr.optJSONObject(i) ?: continue
+            val name = f.optJSONObject("properties")?.optString("StreetName") ?: ""
+            if (name.isNotEmpty() && norm(name) != want) continue // andere Straße mit ähnlichem Namen
+            pc(f)?.let { out.add(it) }
+        }
+        return out.toList()
+    }
+
     fun wienPoint(street: String, number: String, postcode: String?): Pair<Double, Double>? {
         val f = pick(wienFeatures("$street $number") ?: return null, postcode) ?: return null
         val c = f.optJSONObject("geometry")?.optJSONArray("coordinates") ?: return null
@@ -247,6 +268,7 @@ object OsmClient {
         pr.optString("street").takeIf { it.isNotEmpty() }?.let { tags["addr:street"] = it }
         pr.optString("housenumber").takeIf { it.isNotEmpty() }?.let { tags["addr:housenumber"] = it }
         pr.optString("city").takeIf { it.isNotEmpty() }?.let { tags["addr:city"] = it }
+        pr.optString("postcode").takeIf { it.isNotEmpty() }?.let { tags["addr:postcode"] = it }
         return OsmPlace(type + "/" + pr.optLong("osm_id"), c.getDouble(1), c.getDouble(0), tags)
     }
 

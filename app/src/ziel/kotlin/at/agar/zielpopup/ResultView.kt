@@ -39,6 +39,16 @@ object ResultView {
         })
         if (r.headline != null) {
             if (r.title.isNotBlank()) box.addView(small(ctx, r.title.removePrefix("📍 "), 14.5f, Glass.TEXT_SOFT, 3))
+            // Bezirk deutlich sichtbar, eigene Zeile
+            r.district?.let { d ->
+                box.addView(TextView(ctx).apply {
+                    text = "🏙️ $d"
+                    textSize = 16f
+                    setTextColor(Glass.TEXT)
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    setPadding(0, ctx.dp(3), 0, 0)
+                })
+            }
             box.addView(small(ctx, timeText(r), 13.5f, Glass.TEXT_SOFT, 2))
         }
         return box

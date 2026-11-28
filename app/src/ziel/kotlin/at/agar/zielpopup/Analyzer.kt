@@ -36,7 +36,9 @@ data class AnalysisResult(
     val radius: Int = 25,
     val notes: List<String> = emptyList(),
     val time: Long = System.currentTimeMillis(),
-    val etaMin: Int? = null
+    val etaMin: Int? = null,
+    /** z. B. "2. Bezirk · Leopoldstadt" oder "außerhalb Wiens · Schwechat" */
+    val district: String? = null
 )
 
 object Cats {
@@ -110,7 +112,12 @@ object Analyzer {
         val addr = if (official != null) parsed.copy(street = official) else parsed
         val shown = "📍 " + addr.street + (addr.rawNumber?.let { " $it" } ?: "") +
                 (addr.postcode?.let { ", $it Wien" } ?: ", Wien")
-        return search(addr, radius).copy(title = shown)
+        // Bezirk: zuerst aus der eingegebenen Postleitzahl, sonst laut Stadt Wien
+        val district = Bezirke.label(addr.postcode)
+            ?: (try {
+                Bezirke.labelMany(OsmClient.wienPostcodes(addr.street, addr.rawNumber, addr.postcode))
+            } catch (e: Exception) { null })
+        return search(addr, radius).copy(title = shown, district = district)
     }
 
     private fun search(addr: ParsedAddress, radius: Int): AnalysisResult {
@@ -242,7 +249,12 @@ object Analyzer {
             .filter { it.id != hit.id && it.tags["name"] != hit.tags["name"] }
             .mapNotNull { p -> toRow(p, now, distanceM(lat, lon, p.lat, p.lon)) }
             .filter { radius > 0 && (it.dist ?: 0) <= radius }
-        return AnalysisResult("📍 $input", headline, exact, nearby, streetMode = false, radius = radius, notes = notes)
+        val pc = hit.tags["addr:postcode"]
+        val city = hit.tags["addr:city"]
+        val district = Bezirke.label(pc)
+            ?: city?.takeIf { !it.contains("Wien", ignoreCase = true) }?.let { "außerhalb Wiens · $it" }
+        return AnalysisResult("📍 $input", headline, exact, nearby, streetMode = false, radius = radius, notes = notes,
+            district = district)
     }
 
     // ---------- Ohne Hausnummer: ganze Gasse ----------
