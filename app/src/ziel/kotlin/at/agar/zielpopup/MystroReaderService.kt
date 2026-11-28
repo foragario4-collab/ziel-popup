@@ -164,6 +164,12 @@ class MystroReaderService : AccessibilityService() {
             .putString("last_problem", if (trip == null) "Kein Fahrt-Bildschirm (keine Zieladresse gefunden)" else "–")
             .apply()
         if (trip == null) return
+        // echte Fahrt-Bildschirme aufheben – damit kann man später ohne Fahrt genau diesen Fall nachspielen
+        prefs.edit()
+            .putString("last_trip_screen", texts.joinToString("\n").take(6000))
+            .putString("last_trip_label", "${trip.pickup ?: "?"} → ${trip.dest}")
+            .putLong("last_trip_time", System.currentTimeMillis())
+            .apply()
         process(trip, "Mystro")
     }
 

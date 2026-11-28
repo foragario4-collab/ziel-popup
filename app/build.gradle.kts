@@ -15,7 +15,7 @@ android {
         targetSdk = 34
         // Build-Nummer kommt von GitHub (-PbuildNumber=…) – daran erkennt die App ihre Updates
         versionCode = 1000 + buildNumber
-        versionName = "3.2"
+        versionName = "3.4"
     }
 
     // Fester Schlüssel, damit neue Versionen einfach drüber installiert werden können

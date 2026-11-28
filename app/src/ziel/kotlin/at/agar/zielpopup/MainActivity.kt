@@ -614,16 +614,32 @@ class MainActivity : Activity() {
     }
 
     private fun simulateDialog() {
-        val names = samples.map { it.first }.toTypedArray()
+        // Ganz oben: die letzte ECHTE Fahrt, die der Leser in Mystro gesehen hat
+        val p = Prefs.get(this)
+        val realText = p.getString("last_trip_screen", null)
+        val list = ArrayList<Pair<String, List<String>>>()
+        if (realText != null) {
+            val t = p.getLong("last_trip_time", 0L)
+            val wann = SimpleDateFormat("dd.MM. HH:mm", Locale.GERMAN).format(Date(t))
+            list.add("⭐ Letzte echte Mystro-Fahrt ($wann): ${p.getString("last_trip_label", "")}" to realText.split("\n"))
+        }
+        list.addAll(samples)
+        val names = list.map { it.first }.toTypedArray()
         dialog()
             .setTitle("Testfahrt simulieren")
-            .setItems(names) { _, which -> simulate(samples[which].second) }
+            .setItems(names) { _, which -> simulate(list[which].second) }
             .setNegativeButton("Abbrechen", null)
             .show().glassy()
     }
 
     /** Läuft exakt wie bei einer echten Fahrt: Ziel erkennen -> suchen -> Popup */
     private fun simulate(texts: List<String>) {
+        // Läuft der Leser, geht der Test durch ihn – genau wie im Auto (Popup über anderen Apps)
+        MystroReaderService.instance?.let { svc ->
+            moveTaskToBack(true)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ svc.selfTest(texts) }, 1200L)
+            return
+        }
         val dest = MystroParser.findDestination(texts)
         if (dest == null) {
             dialog().setTitle("Testfahrt").setMessage("Kein Ziel erkannt.").setPositiveButton("OK", null).show().glassy()

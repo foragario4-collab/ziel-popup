@@ -1,6 +1,13 @@
 package at.agar.zielpopup
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.RippleDrawable
+import android.net.Uri
+import android.widget.Toast
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.view.Gravity
@@ -51,14 +58,16 @@ object ResultView {
 
     fun body(ctx: Context, r: AnalysisResult): LinearLayout {
         val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        // Adresse des Ziels ohne Symbol – für die Google-Suche beim Antippen
+        val addr = r.title.replace(Regex("""^[^\p{L}\p{N}]+"""), "").trim()
 
         // Betriebe genau an der Adresse: der erste ist schon oben groß genannt -> nur Status
         r.exact.forEachIndexed { i, row ->
             if (i == 0) {
-                list.addView(statusOnly(ctx, row), lp(ctx, 10))
+                list.addView(statusOnly(ctx, row, addr), lp(ctx, 10))
             } else {
                 list.addView(line(ctx, 0x26FFFFFF), thin(ctx, 10))
-                list.addView(rowView(ctx, row, null), lp(ctx, 0))
+                list.addView(rowView(ctx, row, null, addr), lp(ctx, 0))
             }
         }
 
@@ -92,7 +101,7 @@ object ResultView {
                 "Alle ${r.nearby.size} Orte sind durch deine Filter ausgeblendet", 15f, Glass.TEXT_SOFT, 8))
             else -> shown.take(MAX_ROWS).forEachIndexed { i, row ->
                 if (i > 0) list.addView(line(ctx, 0x33FFFFFF), thin(ctx, 0))
-                list.addView(rowView(ctx, row, where(row, r.streetMode)), lp(ctx, 0))
+                list.addView(rowView(ctx, row, where(row, r.streetMode), addr), lp(ctx, 0))
             }
         }
         val extra = (shown.size - MAX_ROWS).coerceAtLeast(0)
@@ -143,7 +152,40 @@ object ResultView {
     // ---------------------------------------------------------------- Bausteine
 
     /** Ein Eintrag: LED links, rechts drei Zeilen */
-    private fun rowView(ctx: Context, row: PlaceRow, where: String?): LinearLayout {
+    // ---------------------------------------------------------------- Antippen = Google-Suche
+
+    /** Öffnet im Browser eine Google-Suche nach diesem Ort (Name + Adresse) */
+    fun searchGoogle(ctx: Context, name: String, addr: String) {
+        val city = if (addr.contains("Wien", ignoreCase = true) || addr.isBlank()) "" else " Wien"
+        val q = "$name $addr$city".trim()
+        val url = "https://www.google.com/search?q=" + Uri.encode(q)
+        try {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            OverlayPopup.hide(ctx, "Google-Suche geöffnet")
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(ctx, "Kein Browser gefunden", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(ctx, "Suche konnte nicht geöffnet werden", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Macht eine Zeile antippbar: leichtes Aufleuchten + Lupe am Ende */
+    private fun makeSearchable(ctx: Context, v: LinearLayout, name: String, addr: String) {
+        if (name.isBlank()) return
+        v.addView(TextView(ctx).apply {
+            text = "🔍"
+            textSize = 15f
+            alpha = 0.75f
+            setPadding(ctx.dp(10), 0, 0, 0)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        v.isClickable = true
+        v.isFocusable = true
+        v.background = RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), null, ColorDrawable(Color.WHITE))
+        v.contentDescription = "$name bei Google suchen"
+        v.setOnClickListener { searchGoogle(ctx, name, addr) }
+    }
+
+    private fun rowView(ctx: Context, row: PlaceRow, where: String?, addr: String): LinearLayout {
         val r = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -171,11 +213,12 @@ object ResultView {
             setTextColor(Glass.TEXT_SOFT)
         })
         r.addView(texts, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        makeSearchable(ctx, r, row.name, addr)
         return r
     }
 
     /** Nur Status (für den Ort, der oben schon groß steht) */
-    private fun statusOnly(ctx: Context, row: PlaceRow): LinearLayout {
+    private fun statusOnly(ctx: Context, row: PlaceRow, addr: String): LinearLayout {
         val r = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -188,6 +231,8 @@ object ResultView {
             textSize = 15f
             setTextColor(Glass.TEXT)
         }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        r.setPadding(0, ctx.dp(6), 0, ctx.dp(6))
+        makeSearchable(ctx, r, row.name, addr)
         return r
     }
 
